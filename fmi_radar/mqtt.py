@@ -36,6 +36,7 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
         "timestamp_utc": result.metadata.get("timestamp_utc"),
         "output_svg": str(config.outdir / "output.svg"),
         "output_png": str(config.outdir / "output.png"),
+        "output_gif": str(config.outdir / "radar.gif"),
         "flow_available": result.metadata.get("flow_available"),
         "will_rain": {str(k): v for k, v in result.will_rain.items()},
         **{f"will_rain_in_{lead}_minutes": flag for lead, flag in result.will_rain.items()},
