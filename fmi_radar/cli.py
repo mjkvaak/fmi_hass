@@ -33,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Square crop size in kilometres (default: 10).",
     )
     parser.add_argument(
+        "--of-padding-km",
+        type=float,
+        default=20.0,
+        help="Kilometres of optical-flow context on each side of --box-km (default: 20).",
+    )
+    parser.add_argument(
         "--theme",
         choices=("dark", "light", "both"),
         default="both",
@@ -46,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cmap-dark", type=_cmap_name, default=None)
     parser.add_argument("--cmap-light", type=_cmap_name, default=None)
+    parser.add_argument(
+        "--alert-alpha",
+        type=float,
+        default=0.05,
+        help="Fill opacity of the warning disk (0–1). The outline is slightly stronger.",
+    )
     parser.add_argument(
         "--quantity",
         choices=("rr", "dbzh"),
@@ -87,6 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="MQTT topic prefix (default: fmi_radar).",
     )
     parser.add_argument(
+        "--gif",
+        action="store_true",
+        help="Write output/radar.gif for T=-15 … T=+15 (observed past, nowcast future).",
+    )
+    parser.add_argument(
         "--product",
         default=None,
         help="S3 filename suffix after the timestamp (advanced).",
@@ -106,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         lat=args.lat,
         lon=args.lon,
         box_km=args.box_km,
+        of_padding_km=args.of_padding_km,
         quantity=args.quantity,
         outdir=args.outdir,
         warn_radius_km=args.warn_radius_km,
@@ -114,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
         cmap=args.cmap,
         cmap_dark=args.cmap_dark,
         cmap_light=args.cmap_light,
+        alert_alpha=args.alert_alpha,
+        write_gif=args.gif,
     )
     if args.product:
         config.product = args.product
@@ -140,4 +160,6 @@ def main(argv: list[str] | None = None) -> int:
         f"mean_rr: {result.alert.mean_rr_mmh:.2f} mm/h  "
         f"max_rr: {result.alert.max_rr_mmh:.2f} mm/h"
     )
+    if result.gif_path:
+        print(f"gif: {result.gif_path}")
     return 0
