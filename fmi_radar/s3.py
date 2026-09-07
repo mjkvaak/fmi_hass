@@ -159,7 +159,7 @@ def fetch_radar(config: Config, now: datetime | None = None) -> RadarObject:
 
 
 def fetch_history(config: Config, t0: datetime) -> dict[int, RadarObject]:
-    """Fetch composites at T=0 and earlier 5-minute slots (keys: -10, -5, 0)."""
+    """Fetch composites at T=0 and earlier 5-minute slots (keys: -15, -10, -5, 0)."""
     session = _session(config)
     t0 = t0.astimezone(timezone.utc).replace(second=0, microsecond=0)
     frames: dict[int, RadarObject] = {}

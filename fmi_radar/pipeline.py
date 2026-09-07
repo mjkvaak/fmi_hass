@@ -10,7 +10,7 @@ from fmi_radar.config import THEMES, Config, Theme
 from fmi_radar.flow import run_nowcast
 from fmi_radar.mqtt import publish_result
 from fmi_radar.persist import save_crop
-from fmi_radar.plot import render_map
+from fmi_radar.plot import render_map, write_radar_gif
 from fmi_radar.process import RadarCrop, crop_radar, crop_stats, extract_box
 from fmi_radar.s3 import fetch_history, fetch_radar
 
@@ -22,6 +22,7 @@ class RenderResult:
     nowcast_alerts: dict[int, RainAlert]
     will_rain: dict[int, str]
     images: dict[str, Path]
+    gif_path: Path | None
     metadata_path: Path
     status_path: Path
     array_path: Path
@@ -69,6 +70,7 @@ def _metadata(
     will_rain: dict[int, str],
     history_offsets: list[int],
     flow_available: bool,
+    gif_path: Path | None,
 ) -> dict:
     stats = crop_stats(crop)
     requested = config.when.isoformat() if config.when else None
@@ -80,6 +82,7 @@ def _metadata(
         "lat": config.lat,
         "lon": config.lon,
         "box_km": config.box_km,
+        "of_padding_km": config.of_padding_km,
         "flow_box_km": config.flow_box_km,
         "warn_radius_km": config.warn_radius_km,
         "crs": crop.crs,
@@ -91,6 +94,7 @@ def _metadata(
         "status_file": str(status_path),
         "output_svg": stable.get("svg"),
         "output_png": stable.get("png"),
+        "gif": str(gif_path) if gif_path else None,
         "alert": alert.as_dict(),
         "nowcast": {str(lead): item.as_dict() for lead, item in nowcast_alerts.items()},
         "history_offsets": history_offsets,
@@ -113,7 +117,8 @@ def render_latest(
     history_objs = fetch_history(config, t0_obj.timestamp)
     history_objs.setdefault(0, t0_obj)
 
-    flow_config = replace(config, box_km=config.flow_box_km)
+    flow_km = config.flow_box_km
+    flow_config = replace(config, box_km=flow_km, of_padding_km=0.0)
     history_crops = {
         offset: crop_radar(obj, flow_config) for offset, obj in history_objs.items()
     }
@@ -139,11 +144,35 @@ def render_latest(
     (config.outdir / "mean_rr.txt").write_text(f"{alert.mean_rr_mmh:.4f}\n")
 
     images: dict[str, Path] = {}
-    for theme in themes:
-        for path in render_map(display, config, theme, _image_paths(config, theme)):
-            images[f"{theme.name}_{path.suffix.lstrip('.')}"] = path
+    gif_path: Path | None = None
+    gif_theme = themes[0] if themes else THEMES["dark"]
+    if not config.skip_images:
+        for theme in themes:
+            paths, _cached = render_map(
+                display, config, theme, _image_paths(config, theme), offset_min=0
+            )
+            for path in paths:
+                images[f"{theme.name}_{path.suffix.lstrip('.')}"] = path
+        stable = _write_stable_images(images, config.outdir)
+    else:
+        stable = {}
 
-    stable = _write_stable_images(images, config.outdir)
+    if config.write_gif:
+        sequence: list[tuple[int, RadarCrop]] = []
+        for offset in sorted(history_crops):
+            sequence.append(
+                (offset, extract_box(history_crops[offset], config.lat, config.lon, config.box_km))
+            )
+        for lead in config.nowcast_lead_min:
+            if lead in nowcast.leads:
+                sequence.append(
+                    (lead, extract_box(nowcast.leads[lead], config.lat, config.lon, config.box_km))
+                )
+        gif_path = write_radar_gif(
+            sequence, config, gif_theme, config.outdir / "radar.gif"
+        )
+        images["gif"] = gif_path
+
     metadata = _metadata(
         display,
         config,
@@ -156,6 +185,7 @@ def render_latest(
         will_rain,
         nowcast.history_offsets,
         nowcast.flow_available,
+        gif_path,
     )
     metadata_path = config.outdir / "radar.json"
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
@@ -165,6 +195,7 @@ def render_latest(
         nowcast_alerts=nowcast_alerts,
         will_rain=will_rain,
         images=images,
+        gif_path=gif_path,
         metadata_path=metadata_path,
         status_path=status_path,
         array_path=array_path,
