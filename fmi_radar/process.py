@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 import numpy as np
 import rasterio
 from pyproj import Transformer
 from rasterio.io import MemoryFile
-from rasterio.windows import from_bounds
+from rasterio.windows import Window, from_bounds
 
 from fmi_radar.config import Config
 from fmi_radar.s3 import RadarObject
@@ -43,17 +43,6 @@ def dbzh_to_rr(dbzh: np.ndarray) -> np.ndarray:
     return np.power(z_linear / ZR_A, 1.0 / ZR_B).astype(np.float32)
 
 
-def _timestamp_from_tags(tags: dict[str, str], fallback: datetime) -> datetime:
-    raw = tags.get("TIFFTAG_DATETIME")
-    if not raw:
-        return fallback
-    try:
-        parsed = datetime.strptime(raw, "%Y:%m:%d %H:%M:%S")
-        return parsed.replace(tzinfo=timezone.utc)
-    except ValueError:
-        return fallback
-
-
 def crop_radar(obj: RadarObject, config: Config) -> RadarCrop:
     half_m = config.box_km * 500.0
     with MemoryFile(obj.payload) as mem, mem.open() as src:
@@ -66,7 +55,7 @@ def crop_radar(obj: RadarObject, config: Config) -> RadarCrop:
         win_transform = src.window_transform(window)
         west, south, east, north = rasterio.windows.bounds(window, src.transform)
         nodata = src.nodata if src.nodata is not None else 255
-        timestamp = _timestamp_from_tags(src.tags(), obj.timestamp)
+        timestamp = obj.timestamp
         crs = src.crs.to_string() if src.crs else "EPSG:3067"
 
     pixels = pixels.astype(np.float32)
@@ -88,6 +77,38 @@ def crop_radar(obj: RadarObject, config: Config) -> RadarCrop:
         s3_key=obj.key,
         url=obj.url,
         transform=win_transform,
+    )
+
+
+def extract_box(crop: RadarCrop, lat: float, lon: float, box_km: float) -> RadarCrop:
+    """Cut a smaller square around lat/lon from an already cropped mosaic."""
+    half_m = box_km * 500.0
+    transformer = Transformer.from_crs("EPSG:4326", crop.crs, always_xy=True)
+    x, y = transformer.transform(lon, lat)
+    window = from_bounds(
+        x - half_m, y - half_m, x + half_m, y + half_m, transform=crop.transform
+    ).round_offsets().round_lengths()
+    row = max(int(window.row_off), 0)
+    col = max(int(window.col_off), 0)
+    height = int(window.height)
+    width = int(window.width)
+    row_end = min(row + height, crop.rr.shape[0])
+    col_end = min(col + width, crop.rr.shape[1])
+    sl = (slice(row, row_end), slice(col, col_end))
+    win = Window(col, row, col_end - col, row_end - row)
+    new_transform = rasterio.windows.transform(win, crop.transform)
+    west, south, east, north = rasterio.windows.bounds(win, crop.transform)
+    return RadarCrop(
+        dbzh=crop.dbzh[sl].copy(),
+        rr=crop.rr[sl].copy(),
+        valid=crop.valid[sl].copy(),
+        bounds=(west, south, east, north),
+        crs=crop.crs,
+        timestamp=crop.timestamp,
+        nodata=crop.nodata,
+        s3_key=crop.s3_key,
+        url=crop.url,
+        transform=new_transform,
     )
 
 

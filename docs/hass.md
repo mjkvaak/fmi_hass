@@ -91,6 +91,12 @@ mqtt:
       state_class: measurement
     - name: FMI radar timestamp
       state_topic: fmi_radar/timestamp
+    - name: FMI radar rain in 5 minutes
+      state_topic: fmi_radar/will_rain_in_5_minutes
+    - name: FMI radar rain in 10 minutes
+      state_topic: fmi_radar/will_rain_in_10_minutes
+    - name: FMI radar rain in 15 minutes
+      state_topic: fmi_radar/will_rain_in_15_minutes
     - name: FMI radar JSON
       state_topic: fmi_radar/state
       value_template: "{{ value_json.status }}"
@@ -134,8 +140,9 @@ Core `local_file` does not refresh SVG well; prefer `output.png` for the card an
 | --- | --- |
 | DRY / RAIN | MQTT `fmi_radar/status` or `status.txt` |
 | Mean rain rate in 2 km disk | MQTT `fmi_radar/mean_rr` or `mean_rr.txt` |
-| Latest picture | `output.png` (and `output.svg`) |
-| Max rate, wet pixel count, timestamp, method | MQTT `fmi_radar/state` JSON / `radar.json` |
+| Rain in 5 / 10 / 15 minutes | MQTT `fmi_radar/will_rain_in_X_minutes` (`true`/`false`/`unknown`) |
+| Latest picture | `output.png` (and `output.svg`); title is radar product time |
+| Max rate, wet pixel count, timestamp, nowcast | MQTT `fmi_radar/state` JSON / `radar.json` |
 
 ## 6. HACS later
 

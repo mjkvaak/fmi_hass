@@ -105,6 +105,10 @@ class Config:
     dbz_vmin: float = 0.0
     dbz_vmax: float = 55.0
     user_agent: str = "fmi-hass-radar/0.1"
+    # Wider domain for optical flow so rain can enter the 10 km map / 2 km disk.
+    flow_box_km: float = 30.0
+    nowcast_history_min: tuple[int, ...] = (10, 5, 0)
+    nowcast_lead_min: tuple[int, ...] = (5, 10, 15)
 
     def cmap_for(self, theme: Theme) -> str:
         if theme.name == "dark" and self.cmap_dark:

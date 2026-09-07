@@ -133,8 +133,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"meta: {result.metadata_path}")
     print(f"array: {result.array_path}")
     print(f"status: {result.alert.status} ({result.status_path})")
+    for lead, flag in sorted(result.will_rain.items()):
+        print(f"will_rain_in_{lead}_minutes: {flag}")
     print(
-        f"time: {result.metadata['timestamp_utc']}  "
+        f"radar_time: {result.metadata['timestamp_utc']}  "
         f"mean_rr: {result.alert.mean_rr_mmh:.2f} mm/h  "
         f"max_rr: {result.alert.max_rr_mmh:.2f} mm/h"
     )

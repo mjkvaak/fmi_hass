@@ -1,29 +1,8 @@
-"""Rain warning disk and a hook for optical-flow nowcasts.
-
-Current behaviour
------------------
-``observed_rain`` tests a circular warning cell (default 2 km radius) around
-the home coordinate on the native radar grid. If any valid pixel inside the
-disk is at or above the rain-rate threshold, status is ``RAIN``, else ``DRY``.
-
-Home Assistant
---------------
-``status.txt`` is a one-line MQTT payload (``RAIN`` / ``DRY``). Richer fields
-live in ``radar.json`` under ``alert``. Swap the file write for an MQTT publish
-later without changing this module.
-
-Optical flow (not implemented yet)
-----------------------------------
-Keep successive crops as ``radar.npz`` / ``radar_prev.npz``. A future flow
-module should estimate a displacement field in the crop CRS (metres) and call
-``nowcast_rain(..., lead_minutes=X, displacement=flow)``. ``advect_field``
-will shift ``rr`` / ``dbzh`` by that flow, then the same disk test runs on the
-advected grid. ``lead_minutes=0`` always means the observed frame.
-"""
+"""Rain warning disk and optical-flow nowcasts."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -31,6 +10,7 @@ from pyproj import Transformer
 from rasterio.transform import xy
 
 from fmi_radar.config import Config
+from fmi_radar.flow import advect_crop
 from fmi_radar.process import RadarCrop
 
 STATUS_RAIN = "RAIN"
@@ -98,22 +78,19 @@ def observed_rain(crop: RadarCrop, config: Config) -> RainAlert:
     )
 
 
+def will_rain_flag(alert: RainAlert | None) -> str:
+    if alert is None:
+        return "unknown"
+    return "true" if alert.status == STATUS_RAIN else "false"
+
+
 def advect_field(
     crop: RadarCrop,
     displacement: np.ndarray,
     lead_minutes: int,
 ) -> RadarCrop:
-    """Shift the crop by an optical-flow displacement (placeholder).
-
-    ``displacement`` should be an array of shape ``(2, H, W)`` in CRS metres
-    (x then y), estimating motion over ``lead_minutes``. Implement with
-    ``scipy.ndimage.map_coordinates`` or equivalent when the flow module lands.
-    """
-    raise NotImplementedError(
-        "Optical-flow advection is not implemented yet. "
-        "Estimate a (2, H, W) metre displacement from radar_prev.npz + "
-        "radar.npz, then implement this shift."
-    )
+    """Shift the crop by a Farneback flow field (pixels per 5-minute step)."""
+    return advect_crop(crop, displacement, lead_minutes)
 
 
 def nowcast_rain(
@@ -126,12 +103,10 @@ def nowcast_rain(
     if lead_minutes <= 0:
         return observed_rain(crop, config)
     if displacement is None:
-        raise NotImplementedError(
+        raise ValueError(
             f"No displacement for a {lead_minutes}-minute nowcast. "
-            "Pass optical-flow output into nowcast_rain(..., displacement=...)."
+            "Pass Farneback flow into nowcast_rain(..., displacement=...)."
         )
     advected = advect_field(crop, displacement, lead_minutes)
     alert = observed_rain(advected, config)
-    alert.lead_minutes = lead_minutes
-    alert.method = "optical_flow"
-    return alert
+    return replace(alert, lead_minutes=lead_minutes, method="optical_flow")

@@ -21,7 +21,10 @@ Stable Lovelace files (copied from the first rendered theme):
 - `output/status.txt` — `RAIN` or `DRY`
 - `output/mean_rr.txt` — spatial mean mm/h inside the 2 km alert disk
 - `output/radar.json` — full metadata
-- `output/radar.npz` / `radar_prev.npz` — arrays for later optical flow
+- `output/radar.npz` / `radar_prev.npz` — arrays for analysis
+- `output/will_rain_in_5_minutes.txt` (also 10 and 15) — `true` / `false` / `unknown`
+
+Optical flow uses T=−10, T=−5, and T=0 (5-minute FMI slots) on a 30 km domain, then advects rain to T=+5/+10/+15 and tests the 2 km alert disk. Map titles and image timestamps use the **radar product time**, not wall-clock render time.
 
 ## CLI
 
