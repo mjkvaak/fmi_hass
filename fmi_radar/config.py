@@ -52,7 +52,7 @@ def _basemap(kind: str):
 
 DARK = Theme(
     name="dark",
-    cmap="plasma",
+    cmap="rainbow",
     face="#111318",
     text="#f2f4f8",
     muted="#9aa3b2",
@@ -60,7 +60,7 @@ DARK = Theme(
 )
 LIGHT = Theme(
     name="light",
-    cmap="YlGnBu",
+    cmap="rainbow",
     face="#f4f6f8",
     text="#1b1f24",
     muted="#5c6570",
@@ -110,7 +110,7 @@ class Config:
     nowcast_history_min: tuple[int, ...] = (15, 10, 5, 0)
     nowcast_lead_min: tuple[int, ...] = (5, 10, 15)
     skip_images: bool = False
-    write_gif: bool = False
+    write_gif: bool = True
     gif_duration_ms: int = 800
     # Fill opacity of the warning disk (edge is drawn a bit stronger).
     alert_alpha: float = 0.05

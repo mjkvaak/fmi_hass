@@ -100,8 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--gif",
-        action="store_true",
-        help="Write output/radar.gif for T=-15 … T=+15 (observed past, nowcast future).",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write output/radar.gif (T=-15 … T=+15) along with static maps. Use --no-gif to skip.",
     )
     parser.add_argument(
         "--product",

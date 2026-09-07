@@ -149,7 +149,7 @@ def render_latest(
     if not config.skip_images:
         for theme in themes:
             paths, _cached = render_map(
-                display, config, theme, _image_paths(config, theme), offset_min=0
+                display, config, theme, _image_paths(config, theme)
             )
             for path in paths:
                 images[f"{theme.name}_{path.suffix.lstrip('.')}"] = path
