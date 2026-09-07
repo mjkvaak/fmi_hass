@@ -122,6 +122,32 @@ def find_nearest_key(
     )
 
 
+def fetch_slot(
+    config: Config,
+    slot: datetime,
+    session: requests.Session | None = None,
+) -> RadarObject | None:
+    """GET the composite at an exact 5-minute slot, or None if missing."""
+    session = session or _session(config)
+    utc = slot.astimezone(timezone.utc).replace(second=0, microsecond=0)
+    key = key_for(utc, config.product)
+    if not _head_ok(session, key):
+        return None
+    url = object_url(key)
+    response = session.get(url, timeout=60)
+    response.raise_for_status()
+    return RadarObject(key=key, timestamp=utc, payload=response.content, url=url, requested=utc)
+
+
+def download_object(config: Config, key: str, timestamp: datetime, requested: datetime | None) -> RadarObject:
+    url = object_url(key)
+    response = _session(config).get(url, timeout=60)
+    response.raise_for_status()
+    return RadarObject(
+        key=key, timestamp=timestamp, payload=response.content, url=url, requested=requested
+    )
+
+
 def fetch_radar(config: Config, now: datetime | None = None) -> RadarObject:
     session = _session(config)
     requested = config.when
@@ -129,16 +155,20 @@ def fetch_radar(config: Config, now: datetime | None = None) -> RadarObject:
         key, timestamp = find_latest_key(config, now=now, session=session)
     else:
         key, timestamp = find_nearest_key(config, requested, session=session)
-    url = object_url(key)
-    response = session.get(url, timeout=60)
-    response.raise_for_status()
-    return RadarObject(
-        key=key,
-        timestamp=timestamp,
-        payload=response.content,
-        url=url,
-        requested=requested,
-    )
+    return download_object(config, key, timestamp, requested)
+
+
+def fetch_history(config: Config, t0: datetime) -> dict[int, RadarObject]:
+    """Fetch composites at T=0 and earlier 5-minute slots (keys: -10, -5, 0)."""
+    session = _session(config)
+    t0 = t0.astimezone(timezone.utc).replace(second=0, microsecond=0)
+    frames: dict[int, RadarObject] = {}
+    for offset in config.nowcast_history_min:
+        rel = 0 if offset == 0 else -abs(offset)
+        obj = fetch_slot(config, t0 + timedelta(minutes=rel), session=session)
+        if obj is not None:
+            frames[rel] = obj
+    return frames
 
 
 def fetch_latest(config: Config, now: datetime | None = None) -> RadarObject:

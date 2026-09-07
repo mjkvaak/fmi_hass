@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -88,7 +89,7 @@ def render_map(
 
     to_merc = Transformer.from_crs("EPSG:4326", WEB_MERCATOR, always_xy=True)
     home_x, home_y = to_merc.transform(config.lon, config.lat)
-    local = crop.timestamp.astimezone(HELSINKI)
+    radar_stamp = crop.timestamp.astimezone(HELSINKI).strftime("%Y-%m-%d %H:%M %Z")
     stats = crop_stats(crop)
 
     tiles, tile_extent = cx.bounds2img(
@@ -153,7 +154,7 @@ def render_map(
 
     title = "Precipitation radar" if config.quantity == "rr" else "Radar reflectivity"
     ax.set_title(
-        f"{title}  ·  {local:%Y-%m-%d %H:%M %Z}\n"
+        f"{title}  ·  {radar_stamp}\n"
         f"{config.lat:.4f}°N  {config.lon:.4f}°E  ·  {config.box_km:.0f}×{config.box_km:.0f} km  ·  "
         f"max {stats['max_rr_mmh']:.2f} mm/h",
         color=theme.text,
@@ -169,12 +170,22 @@ def render_map(
         fontsize=7,
     )
     fig.tight_layout(rect=(0.0, 0.03, 1.0, 1.0))
+    radar_epoch = crop.timestamp.timestamp()
     for output in paths:
-        fig.savefig(
-            output,
-            format=output.suffix.lstrip(".").lower() or "png",
-            facecolor=fig.get_facecolor(),
-            edgecolor="none",
-        )
+        save_kw = {
+            "format": output.suffix.lstrip(".").lower() or "png",
+            "facecolor": fig.get_facecolor(),
+            "edgecolor": "none",
+            "metadata": {
+                "Title": "FMI precipitation radar",
+                "Creation Time": crop.timestamp.isoformat(),
+            },
+        }
+        try:
+            fig.savefig(output, **save_kw)
+        except (TypeError, ValueError, KeyError):
+            save_kw.pop("metadata", None)
+            fig.savefig(output, **save_kw)
+        os.utime(output, (radar_epoch, radar_epoch))
     plt.close(fig)
     return paths
