@@ -43,8 +43,10 @@ Type=oneshot
 User=fmiradar
 EnvironmentFile=/etc/fmi-radar.env
 WorkingDirectory=/opt/fmi_radar
-ExecStart=/opt/fmi_radar/.venv/bin/python -m fmi_radar --theme dark --format both --outdir /var/lib/fmi_radar --cmap plasma
+ExecStart=/opt/fmi_radar/.venv/bin/python -m fmi_radar --theme dark --format both --outdir /var/lib/fmi_radar
 ```
+
+That writes `output.png`, `output.svg`, and `radar.gif`. Use `--no-gif` only if you want stills.
 
 `/etc/systemd/system/fmi-radar.timer`:
 
@@ -91,6 +93,12 @@ mqtt:
       state_class: measurement
     - name: FMI radar timestamp
       state_topic: fmi_radar/timestamp
+    - name: FMI radar rain in 5 minutes
+      state_topic: fmi_radar/will_rain_in_5_minutes
+    - name: FMI radar rain in 10 minutes
+      state_topic: fmi_radar/will_rain_in_10_minutes
+    - name: FMI radar rain in 15 minutes
+      state_topic: fmi_radar/will_rain_in_15_minutes
     - name: FMI radar JSON
       state_topic: fmi_radar/state
       value_template: "{{ value_json.status }}"
@@ -103,7 +111,9 @@ If you cannot use MQTT, `command_line` sensors can `cat` `status.txt` and `mean_
 
 ## 4. Map image on a dashboard
 
-PNG is the reliable Lovelace camera/picture format. SVG is written as `output.svg` for browsers or a Webpage card.
+Each run writes a still (`output.png`) and an animation (`radar.gif`). Use whichever card you prefer; both files update every 5 minutes.
+
+PNG is the reliable Lovelace **camera** format. GIF plays in a **picture** card in the browser. SVG is written as `output.svg` for browsers or a Webpage card.
 
 If `--outdir` is `/config/www/fmi_radar`:
 
@@ -113,20 +123,24 @@ camera:
     name: FMI radar
     file_path: /config/www/fmi_radar/output.png
 
-# Lovelace
+# Lovelace — still
 type: picture-entity
 entity: camera.fmi_radar
 show_state: false
+
+# Lovelace — T=-15 … T=+15 animation
+type: picture
+image: /local/fmi_radar/radar.gif
 ```
 
-Or without a camera:
+Or the still without a camera:
 
 ```yaml
 type: picture
 image: /local/fmi_radar/output.png
 ```
 
-Core `local_file` does not refresh SVG well; prefer `output.png` for the card and keep `output.svg` if you embed it elsewhere.
+Core `local_file` does not refresh SVG well and is a poor fit for GIF; prefer `output.png` for the camera entity and `radar.gif` on a picture card.
 
 ## 5. What HASS receives (minimum vs extra)
 
@@ -134,8 +148,10 @@ Core `local_file` does not refresh SVG well; prefer `output.png` for the card an
 | --- | --- |
 | DRY / RAIN | MQTT `fmi_radar/status` or `status.txt` |
 | Mean rain rate in 2 km disk | MQTT `fmi_radar/mean_rr` or `mean_rr.txt` |
-| Latest picture | `output.png` (and `output.svg`) |
-| Max rate, wet pixel count, timestamp, method | MQTT `fmi_radar/state` JSON / `radar.json` |
+| Rain in 5 / 10 / 15 minutes | MQTT `fmi_radar/will_rain_in_X_minutes` (`true`/`false`/`unknown`) |
+| Latest still | `output.png` (and `output.svg`); title is radar product time |
+| Past + nowcast animation | `radar.gif` |
+| Max rate, wet pixel count, timestamp, nowcast | MQTT `fmi_radar/state` JSON / `radar.json` |
 
 ## 6. HACS later
 

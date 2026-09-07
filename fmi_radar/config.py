@@ -52,7 +52,7 @@ def _basemap(kind: str):
 
 DARK = Theme(
     name="dark",
-    cmap="plasma",
+    cmap="rainbow",
     face="#111318",
     text="#f2f4f8",
     muted="#9aa3b2",
@@ -60,7 +60,7 @@ DARK = Theme(
 )
 LIGHT = Theme(
     name="light",
-    cmap="YlGnBu",
+    cmap="rainbow",
     face="#f4f6f8",
     text="#1b1f24",
     muted="#5c6570",
@@ -105,6 +105,20 @@ class Config:
     dbz_vmin: float = 0.0
     dbz_vmax: float = 55.0
     user_agent: str = "fmi-hass-radar/0.1"
+    # Extra kilometres on each side of --box-km for optical flow (inflow from outside the map).
+    of_padding_km: float = 20.0
+    nowcast_history_min: tuple[int, ...] = (15, 10, 5, 0)
+    nowcast_lead_min: tuple[int, ...] = (5, 10, 15)
+    skip_images: bool = False
+    write_gif: bool = True
+    gif_duration_ms: int = 800
+    # Fill opacity of the warning disk (edge is drawn a bit stronger).
+    alert_alpha: float = 0.05
+
+    @property
+    def flow_box_km(self) -> float:
+        """Square used for Farneback: map crop plus padding on every side."""
+        return self.box_km + 2.0 * max(0.0, self.of_padding_km)
 
     def cmap_for(self, theme: Theme) -> str:
         if theme.name == "dark" and self.cmap_dark:

@@ -36,6 +36,10 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
         "timestamp_utc": result.metadata.get("timestamp_utc"),
         "output_svg": str(config.outdir / "output.svg"),
         "output_png": str(config.outdir / "output.png"),
+        "output_gif": str(config.outdir / "radar.gif"),
+        "flow_available": result.metadata.get("flow_available"),
+        "will_rain": {str(k): v for k, v in result.will_rain.items()},
+        **{f"will_rain_in_{lead}_minutes": flag for lead, flag in result.will_rain.items()},
     }
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="fmi_radar")
@@ -60,6 +64,15 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
             ),
             client.publish(f"{prefix}/state", json.dumps(state), qos=qos, retain=True),
         ]
+        for lead, flag in result.will_rain.items():
+            publishes.append(
+                client.publish(
+                    f"{prefix}/will_rain_in_{lead}_minutes",
+                    flag,
+                    qos=qos,
+                    retain=True,
+                )
+            )
         for msg in publishes:
             msg.wait_for_publish(timeout=5)
     finally:
