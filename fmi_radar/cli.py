@@ -8,6 +8,7 @@ from matplotlib import colormaps
 from fmi_radar.config import DEFAULT_BOX_KM, DEFAULT_LAT, DEFAULT_LON, THEMES, Config
 from fmi_radar.mqtt import report_unavailable
 from fmi_radar.pipeline import render_latest
+from fmi_radar.s3 import parse_timestamp
 from fmi_radar.timeout import call_with_timeout
 
 
