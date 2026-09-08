@@ -11,8 +11,10 @@ from pathlib import Path
 
 from fmi_radar.cli import _cmap_name
 from fmi_radar.config import DEFAULT_BOX_KM, DEFAULT_LAT, DEFAULT_LON, THEMES, Config
+from fmi_radar.mqtt import report_unavailable
 from fmi_radar.pipeline import render_latest
 from fmi_radar.s3 import parse_timestamp
+from fmi_radar.timeout import call_with_timeout
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--gif",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Write output/radar.gif (T=-15 … T=+15). Use --no-gif to skip.",
+        help="Write output/radar.gif (T=0 … T=+15). Use --no-gif to skip.",
     )
     parser.add_argument(
         "--time",
@@ -85,8 +87,15 @@ def main(argv: list[str] | None = None) -> int:
         write_gif=args.gif,
         image_formats=(),
     )
-    result = render_latest(config, themes=[THEMES[args.theme]])
+    try:
+        result = call_with_timeout(config.timeout_sec, render_latest, config, [THEMES[args.theme]])
+    except Exception as exc:
+        report_unavailable(config, str(exc))
+        print(f"unavailable: {exc}")
+        return 1
     print(f"radar_time: {result.metadata['timestamp_utc']}")
+    print(f"align_min: {result.metadata.get('align_min')}")
+    print(f"anim_horizon_min: {result.metadata.get('anim_horizon_min')}")
     print(f"history: {result.metadata['history_offsets']}")
     print(f"flow_available: {result.metadata['flow_available']}")
     print(f"status: {result.alert.status}")

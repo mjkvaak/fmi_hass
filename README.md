@@ -18,14 +18,14 @@ Stable Lovelace files (copied from the first rendered theme):
 
 - `output/output.svg`
 - `output/output.png`
-- `output/status.txt` — `RAIN` or `DRY`
+- `output/status.txt` — `RAIN`, `DRY`, or `unavailable`
 - `output/mean_rr.txt` — spatial mean mm/h inside the 2 km alert disk
 - `output/radar.json` — full metadata
 - `output/radar.npz` / `radar_prev.npz` — arrays for analysis
 - `output/will_rain_in_5_minutes.txt` (also 10 and 15) — `true` / `false` / `unknown`
-- `output/radar.gif` — T=−15…0 observed + T=+5/+10/+15 nowcast (on by default; `--no-gif` to skip)
+- `output/radar.gif` — T=0…+15 nowcast with interpolated frames (on by default; `--no-gif` to skip)
 
-Optical flow uses T=−15, T=−10, T=−5, and T=0 (5-minute FMI slots) on `--box-km` plus `--of-padding-km` on each side (default 10+20+20 = 50 km), then advects rain to T=+5/+10/+15 and crops back to the map. The 2 km alert disk is tested on that nowcast. Map titles and image timestamps use the **radar product time**, not wall-clock render time.
+Optical flow uses T=−15…0 on `--box-km` plus `--of-padding-km` (default 50 km), then advects up to **30 minutes**. For live runs, T=0 is the lead closest to **wall-clock now** (so S3 publish lag is absorbed); the GIF only shows T=0…+15 from that origin and drops frames that would exceed +30 from the product. Historic `--time` keeps T=0 at the requested composite. GIF: 2.5-minute steps, pause on first/last frame, **forward loop**. Arrows: at most `box_km² / 100`. Download+render aborts after 4 minutes (`--timeout`) and MQTT becomes `unavailable`.
 
 ## CLI
 
@@ -42,7 +42,13 @@ Optical flow uses T=−15, T=−10, T=−5, and T=0 (5-minute FMI slots) on `--b
 | `--format` | png | `png`, `svg`, or `both` |
 | `--time` | latest | Historic UTC compact `YYYYMMDDHHMM` or ISO |
 | `--mqtt-host` | env `FMI_RADAR_MQTT_HOST` | Publish retained MQTT messages |
-| `--gif` | on | Write `output/radar.gif` with the static maps. `--no-gif` skips it. |
+| `--gif` | on | Write `output/radar.gif` (T=0…+15). `--no-gif` skips it. |
+| `--gif-fps` | 3 | Animation frame rate |
+| `--gif-step-min` | 2.5 | Interpolated minutes between GIF frames |
+| `--flow-arrows` | on | Optical-flow arrows on stills and GIF |
+| `--flow-arrow-density` | 0.01 | Arrows per km²; `0` or negative hides them |
+| `--timeout` | 240 | Abort run after this many seconds |
+| `--poll-seconds` | 60 | Wait for the expected S3 slot |
 | `--outdir` | output | Destination for images + status |
 
 ```bash

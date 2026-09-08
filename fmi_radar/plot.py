@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -85,10 +86,12 @@ def _restyle_basemap(img: np.ndarray, theme: Theme) -> np.ndarray:
     return out
 
 
-def _offset_label(offset_min: int) -> str:
-    kind = "nowcast" if offset_min > 0 else "observed"
-    stamp = "T=0 min" if offset_min == 0 else f"T={offset_min:+d} min"
-    return f"{stamp}\n{kind}"
+def _offset_label(offset_min: float) -> str:
+    if abs(offset_min) < 0.05:
+        return "T=0 min"
+    if abs(offset_min - round(offset_min)) < 0.05:
+        return f"T={int(round(offset_min)):+d} min"
+    return f"T={offset_min:+g} min"
 
 
 def _alert_zone_ring(lon: float, lat: float, radius_km: float, crop_crs: str) -> np.ndarray:
@@ -100,13 +103,87 @@ def _alert_zone_ring(lon: float, lat: float, radius_km: float, crop_crs: str) ->
     return np.column_stack((x0 + radius_m * np.cos(theta), y0 + radius_m * np.sin(theta)))
 
 
+def _arrow_sites(
+    crop: RadarCrop, flow: np.ndarray, config: Config
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """Fixed grid + rain mask from one crop (T=0). Reused on every GIF frame."""
+    if config.flow_arrow_density <= 0 or not config.show_flow_arrows:
+        return None
+    if flow is None or flow.shape[:2] != crop.rr.shape:
+        return None
+    n_max = config.box_km * config.box_km * config.flow_arrow_density
+    if n_max < 0.5:
+        return None
+    n_side = max(1, int(round(math.sqrt(n_max))))
+    height, width = crop.rr.shape
+    rows = np.unique(
+        np.clip(((np.arange(n_side) + 0.5) * height / n_side).astype(int), 0, height - 1)
+    )
+    cols = np.unique(
+        np.clip(((np.arange(n_side) + 0.5) * width / n_side).astype(int), 0, width - 1)
+    )
+    if rows.size == 0 or cols.size == 0:
+        return None
+    fx = flow[np.ix_(rows, cols)][..., 0]
+    fy = flow[np.ix_(rows, cols)][..., 1]
+    rain = np.nan_to_num(crop.rr[np.ix_(rows, cols)], nan=0.0)
+    speed = np.hypot(fx, fy)
+    keep = (rain >= config.rr_vmin) & (speed >= 0.15)
+    if not np.any(keep):
+        return None
+    return rows, cols, keep
+
+
+def _draw_flow_arrows(
+    ax,
+    crop: RadarCrop,
+    flow: np.ndarray,
+    config: Config,
+    theme: Theme,
+    sites: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+) -> None:
+    """Quiver at frozen T=0 sites so arrows do not flicker as rain advects."""
+    if config.flow_arrow_density <= 0:
+        return
+    if sites is None:
+        sites = _arrow_sites(crop, flow, config)
+    if sites is None or flow is None or flow.shape[:2] != crop.rr.shape:
+        return
+    rows, cols, keep = sites
+    fx = flow[np.ix_(rows, cols)][..., 0]
+    fy = flow[np.ix_(rows, cols)][..., 1]
+    a, _, c, _, e, f, *_ = crop.transform
+    cc, rr_i = np.meshgrid(cols, rows)
+    xs = c + a * (cc + 0.5)
+    ys = f + e * (rr_i + 0.5)
+    u = fx * a
+    v = fy * e
+    ax.quiver(
+        xs[keep],
+        ys[keep],
+        u[keep],
+        v[keep],
+        color=theme.text,
+        alpha=0.55,
+        scale_units="xy",
+        scale=1.0,
+        width=0.004,
+        headwidth=3.2,
+        headlength=4.0,
+        zorder=6,
+        pivot="tail",
+    )
+
+
 def _draw_radar_figure(
     crop: RadarCrop,
     config: Config,
     theme: Theme,
     *,
-    offset_min: int | None = None,
+    offset_min: float | None = None,
     cached_basemap: tuple | None = None,
+    flow: np.ndarray | None = None,
+    arrow_sites: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ):
     values = crop.dbzh if config.quantity == "dbzh" else crop.rr
     west, south, east, north = _src_bounds(crop)
@@ -144,6 +221,8 @@ def _draw_radar_figure(
         alpha=0.78,
         zorder=3,
     )
+    if config.show_flow_arrows and config.flow_arrow_density > 0 and flow is not None:
+        _draw_flow_arrows(ax, crop, flow, config, theme, sites=arrow_sites)
     ax.set_xlim(west, east)
     ax.set_ylim(south, north)
     ax.set_aspect("equal")
@@ -227,8 +306,10 @@ def render_map(
     theme: Theme,
     outputs: Path | list[Path],
     *,
-    offset_min: int | None = None,
+    offset_min: float | None = None,
     cached_basemap: tuple | None = None,
+    flow: np.ndarray | None = None,
+    arrow_sites: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> tuple[list[Path], tuple]:
     paths = [outputs] if isinstance(outputs, Path) else list(outputs)
     if not paths:
@@ -236,7 +317,13 @@ def render_map(
     paths[0].parent.mkdir(parents=True, exist_ok=True)
 
     fig, cached_basemap = _draw_radar_figure(
-        crop, config, theme, offset_min=offset_min, cached_basemap=cached_basemap
+        crop,
+        config,
+        theme,
+        offset_min=offset_min,
+        cached_basemap=cached_basemap,
+        flow=flow,
+        arrow_sites=arrow_sites,
     )
     radar_epoch = crop.timestamp.timestamp()
     for output in paths:
@@ -260,26 +347,41 @@ def render_map(
 
 
 def write_radar_gif(
-    frames: list[tuple[int, RadarCrop]],
+    frames: list[tuple[float, RadarCrop]],
     config: Config,
     theme: Theme,
     output: Path,
+    *,
+    flow: np.ndarray | None = None,
 ) -> Path:
-    """Animate observed past + nowcast future, annotated T=-15 … T=+15."""
+    """Animate T=0 → T=+15 with interpolated advection (forward only)."""
     if not frames:
         raise ValueError("No GIF frames")
     output.parent.mkdir(parents=True, exist_ok=True)
     images: list[Image.Image] = []
     cached = None
+    sites = _arrow_sites(frames[0][1], flow, config) if flow is not None else None
     for offset, crop in frames:
         fig, cached = _draw_radar_figure(
-            crop, config, theme, offset_min=offset, cached_basemap=cached
+            crop,
+            config,
+            theme,
+            offset_min=offset,
+            cached_basemap=cached,
+            flow=flow,
+            arrow_sites=sites,
         )
         buf = io.BytesIO()
         fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), edgecolor="none")
         plt.close(fig)
         buf.seek(0)
         images.append(Image.open(buf).convert("RGB"))
+    fps = config.gif_fps if config.gif_fps > 0 else 1000.0 / max(config.gif_duration_ms, 1)
+    frame_ms = int(round(1000.0 / fps))
+    hold_ms = int(round(frame_ms * max(1.0, config.gif_hold)))
+    durations = [frame_ms] * len(images)
+    durations[0] = hold_ms
+    durations[-1] = hold_ms
     palette = images[0].quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     quantized = [
         frame.quantize(palette=palette, dither=Image.Dither.NONE) for frame in images
@@ -288,7 +390,7 @@ def write_radar_gif(
         output,
         save_all=True,
         append_images=quantized[1:],
-        duration=config.gif_duration_ms,
+        duration=durations,
         loop=0,
         optimize=False,
         disposal=2,

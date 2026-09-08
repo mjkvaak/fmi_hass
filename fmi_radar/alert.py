@@ -15,6 +15,7 @@ from fmi_radar.process import RadarCrop
 
 STATUS_RAIN = "RAIN"
 STATUS_DRY = "DRY"
+STATUS_UNAVAILABLE = "unavailable"
 Method = Literal["observed", "optical_flow"]
 
 

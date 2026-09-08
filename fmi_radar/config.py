@@ -111,7 +111,19 @@ class Config:
     nowcast_lead_min: tuple[int, ...] = (5, 10, 15)
     skip_images: bool = False
     write_gif: bool = True
-    gif_duration_ms: int = 800
+    # Animation is T=0 → T=+15 with interpolated advection (minutes between frames).
+    gif_fps: float = 3.0
+    gif_hold: float = 2.5
+    gif_step_min: float = 2.5
+    gif_duration_ms: int = 800  # unused if gif_fps set; kept as fallback
+    show_flow_arrows: bool = True
+    # Max arrows = box_km² × this (default 1 per 100 km²). ≤ 0 disables arrows.
+    flow_arrow_density: float = 0.01
+    max_advect_min: float = 30.0
+    timeout_sec: float = 240.0
+    # FMI composites typically land several minutes after the product timestamp.
+    publish_lag_min: float = 5.0
+    poll_seconds: float = 60.0
     # Fill opacity of the warning disk (edge is drawn a bit stronger).
     alert_alpha: float = 0.05
 

@@ -5,13 +5,15 @@ import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from datetime import datetime, timezone
+
 from fmi_radar.alert import RainAlert, observed_rain, will_rain_flag
 from fmi_radar.config import THEMES, Config, Theme
-from fmi_radar.flow import run_nowcast
+from fmi_radar.flow import advect_crop, run_nowcast
 from fmi_radar.mqtt import publish_result
 from fmi_radar.persist import save_crop
 from fmi_radar.plot import render_map, write_radar_gif
-from fmi_radar.process import RadarCrop, crop_radar, crop_stats, extract_box
+from fmi_radar.process import RadarCrop, crop_radar, crop_stats, extract_box, extract_flow
 from fmi_radar.s3 import fetch_history, fetch_radar
 
 
@@ -79,6 +81,7 @@ def _metadata(
         "requested": requested,
         "s3_key": crop.s3_key,
         "url": crop.url,
+        "published_utc": None,
         "lat": config.lat,
         "lon": config.lon,
         "box_km": config.box_km,
@@ -104,6 +107,34 @@ def _metadata(
     }
 
 
+def _gif_offsets(config: Config, max_lead: float) -> list[float]:
+    max_lead = max(0.0, float(max_lead))
+    if max_lead < 1e-6:
+        return [0.0]
+    step = max(0.5, float(config.gif_step_min))
+    offsets = [0.0]
+    t = 0.0
+    while t + step < max_lead - 1e-6:
+        t += step
+        offsets.append(round(t, 4))
+    if offsets[-1] < max_lead - 1e-6:
+        offsets.append(round(max_lead, 4))
+    return offsets
+
+
+def _align_lead_min(product_time: datetime, config: Config) -> float:
+    """Minutes to advect so T=0 matches wall clock. Historic `--time` stays at the product."""
+    if config.when is not None:
+        return 0.0
+    now = datetime.now(timezone.utc)
+    lag = (now - product_time.astimezone(timezone.utc)).total_seconds() / 60.0
+    if lag <= 0:
+        return 0.0
+    step = max(0.5, float(config.gif_step_min))
+    aligned = round(lag / step) * step
+    return float(min(max(aligned, 0.0), config.max_advect_min))
+
+
 def render_latest(
     config: Config | None = None,
     themes: list[Theme] | None = None,
@@ -123,15 +154,34 @@ def render_latest(
         offset: crop_radar(obj, flow_config) for offset, obj in history_objs.items()
     }
     t0_flow = history_crops[0]
-    display = extract_box(t0_flow, config.lat, config.lon, config.box_km)
-
-    alert = observed_rain(t0_flow, config)
     nowcast = run_nowcast(history_crops, config.nowcast_lead_min)
+    align_min = _align_lead_min(t0_flow.timestamp, config) if nowcast.flow is not None else 0.0
+    anim_horizon = min(float(max(config.nowcast_lead_min)), config.max_advect_min - align_min)
+    anim_horizon = max(0.0, anim_horizon)
+
+    if align_min > 0 and nowcast.flow is not None:
+        aligned_flow = advect_crop(t0_flow, nowcast.flow, align_min)
+    else:
+        aligned_flow = t0_flow
+    display = extract_box(aligned_flow, config.lat, config.lon, config.box_km)
+    display_flow = None
+    if nowcast.flow is not None:
+        display_flow = extract_flow(
+            nowcast.flow, t0_flow, config.lat, config.lon, config.box_km
+        )
+
+    alert = observed_rain(aligned_flow, config)
     nowcast_alerts: dict[int, RainAlert] = {}
     will_rain: dict[int, str] = {}
     for lead in config.nowcast_lead_min:
-        if nowcast.flow_available and lead in nowcast.leads:
-            predicted = observed_rain(nowcast.leads[lead], config)
+        product_lead = align_min + lead
+        if (
+            nowcast.flow is not None
+            and product_lead <= config.max_advect_min + 1e-6
+        ):
+            predicted = observed_rain(
+                advect_crop(t0_flow, nowcast.flow, product_lead), config
+            )
             nowcast_alerts[lead] = replace(
                 predicted, lead_minutes=lead, method="optical_flow"
             )
@@ -149,7 +199,7 @@ def render_latest(
     if not config.skip_images:
         for theme in themes:
             paths, _cached = render_map(
-                display, config, theme, _image_paths(config, theme)
+                display, config, theme, _image_paths(config, theme), flow=display_flow
             )
             for path in paths:
                 images[f"{theme.name}_{path.suffix.lstrip('.')}"] = path
@@ -158,20 +208,28 @@ def render_latest(
         stable = {}
 
     if config.write_gif:
-        sequence: list[tuple[int, RadarCrop]] = []
-        for offset in sorted(history_crops):
-            sequence.append(
-                (offset, extract_box(history_crops[offset], config.lat, config.lon, config.box_km))
-            )
-        for lead in config.nowcast_lead_min:
-            if lead in nowcast.leads:
+        sequence: list[tuple[float, RadarCrop]] = []
+        for offset in _gif_offsets(config, anim_horizon):
+            product_lead = align_min + offset
+            if offset <= 0:
+                sequence.append((0.0, display))
+            elif nowcast.flow is not None and product_lead <= config.max_advect_min + 1e-6:
+                advected = advect_crop(t0_flow, nowcast.flow, product_lead)
                 sequence.append(
-                    (lead, extract_box(nowcast.leads[lead], config.lat, config.lon, config.box_km))
+                    (
+                        offset,
+                        extract_box(advected, config.lat, config.lon, config.box_km),
+                    )
                 )
-        gif_path = write_radar_gif(
-            sequence, config, gif_theme, config.outdir / "radar.gif"
-        )
-        images["gif"] = gif_path
+        if sequence:
+            gif_path = write_radar_gif(
+                sequence,
+                config,
+                gif_theme,
+                config.outdir / "radar.gif",
+                flow=display_flow,
+            )
+            images["gif"] = gif_path
 
     metadata = _metadata(
         display,
@@ -187,6 +245,11 @@ def render_latest(
         nowcast.flow_available,
         gif_path,
     )
+    if t0_obj.published is not None:
+        metadata["published_utc"] = t0_obj.published.isoformat()
+    metadata["product_timestamp_utc"] = t0_flow.timestamp.isoformat()
+    metadata["align_min"] = align_min
+    metadata["anim_horizon_min"] = anim_horizon
     metadata_path = config.outdir / "radar.json"
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
     result = RenderResult(
