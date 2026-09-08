@@ -74,7 +74,7 @@ def advect_array(field: np.ndarray, flow: np.ndarray, steps: float) -> np.ndarra
     return np.where(inside, remapped, np.nan).astype(np.float32)
 
 
-def advect_crop(crop: RadarCrop, flow: np.ndarray, lead_minutes: int) -> RadarCrop:
+def advect_crop(crop: RadarCrop, flow: np.ndarray, lead_minutes: float) -> RadarCrop:
     steps = lead_minutes / INTERVAL_MIN
     rr = advect_array(crop.rr, flow, steps)
     dbzh = advect_array(crop.dbzh, flow, steps)
@@ -94,6 +94,7 @@ class Nowcast:
     history_offsets: list[int]
     flow_available: bool
     leads: dict[int, RadarCrop]
+    flow: np.ndarray | None
 
 
 def run_nowcast(history: dict[int, RadarCrop], leads: tuple[int, ...]) -> Nowcast:
@@ -110,4 +111,5 @@ def run_nowcast(history: dict[int, RadarCrop], leads: tuple[int, ...]) -> Nowcas
         history_offsets=sorted(history),
         flow_available=flow is not None,
         leads=predicted,
+        flow=flow,
     )

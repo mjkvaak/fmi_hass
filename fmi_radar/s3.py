@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
 import requests
@@ -21,9 +23,10 @@ HELSINKI = ZoneInfo("Europe/Helsinki")
 class RadarObject:
     key: str
     timestamp: datetime
-    payload: bytes
     url: str
+    payload: bytes | None = None
     requested: datetime | None = None
+    published: datetime | None = None
 
 
 def _session(config: Config) -> requests.Session:
@@ -75,24 +78,68 @@ def _floor_interval(now: datetime) -> datetime:
     return utc - timedelta(minutes=utc.minute % INTERVAL_MIN)
 
 
-def _head_ok(session: requests.Session, key: str) -> bool:
+def _parse_http_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _head(session: requests.Session, key: str) -> requests.Response | None:
     response = session.head(object_url(key), timeout=20, allow_redirects=True)
-    return response.status_code == 200
+    if response.status_code != 200:
+        return None
+    return response
+
+
+def _ref(
+    key: str,
+    timestamp: datetime,
+    requested: datetime | None,
+    published: datetime | None = None,
+) -> RadarObject:
+    return RadarObject(
+        key=key,
+        timestamp=timestamp,
+        url=object_url(key),
+        payload=None,
+        requested=requested,
+        published=published,
+    )
+
+
+def expected_product_slot(now: datetime, publish_lag_min: float) -> datetime:
+    """Latest 5-minute slot that should already be on S3.
+
+    FMI writes the GeoTIFF several minutes after the product timestamp. Until
+    that lag has passed, the current floor slot is usually still a 404.
+    """
+    slot = _floor_interval(now)
+    age_min = (now.astimezone(timezone.utc) - slot).total_seconds() / 60.0
+    if age_min < publish_lag_min:
+        slot -= timedelta(minutes=INTERVAL_MIN)
+    return slot
 
 
 def find_latest_key(
     config: Config,
     now: datetime | None = None,
     session: requests.Session | None = None,
-) -> tuple[str, datetime]:
+) -> tuple[str, datetime, datetime | None]:
     """Walk 5-minute slots backward until a composite object exists."""
     session = session or _session(config)
-    slot = _floor_interval(now or datetime.now(timezone.utc))
+    slot = expected_product_slot(now or datetime.now(timezone.utc), config.publish_lag_min)
     steps = MAX_LOOKBACK_MIN // INTERVAL_MIN
     for _ in range(steps):
         key = key_for(slot, config.product)
-        if _head_ok(session, key):
-            return key, slot
+        response = _head(session, key)
+        if response is not None:
+            return key, slot, _parse_http_date(response.headers.get("Last-Modified"))
         slot -= timedelta(minutes=INTERVAL_MIN)
     raise FileNotFoundError(
         f"No {config.product!r} object in the last {MAX_LOOKBACK_MIN} minutes"
@@ -103,7 +150,7 @@ def find_nearest_key(
     config: Config,
     when: datetime,
     session: requests.Session | None = None,
-) -> tuple[str, datetime]:
+) -> tuple[str, datetime, datetime | None]:
     """Match a requested time to the closest existing 5-minute composite."""
     session = session or _session(config)
     center = round_to_interval(when)
@@ -115,11 +162,37 @@ def find_nearest_key(
             candidates.append(center - timedelta(minutes=step * INTERVAL_MIN))
         for slot in candidates:
             key = key_for(slot, config.product)
-            if _head_ok(session, key):
-                return key, slot
+            response = _head(session, key)
+            if response is not None:
+                return key, slot, _parse_http_date(response.headers.get("Last-Modified"))
     raise FileNotFoundError(
         f"No {config.product!r} object within {MAX_NEAREST_MIN} minutes of {when.isoformat()}"
     )
+
+
+def _poll_for_slot(
+    config: Config,
+    slot: datetime,
+    session: requests.Session,
+) -> tuple[str, datetime, datetime | None] | None:
+    deadline = time.monotonic() + max(0.0, config.poll_seconds)
+    while True:
+        key = key_for(slot, config.product)
+        response = _head(session, key)
+        if response is not None:
+            return key, slot, _parse_http_date(response.headers.get("Last-Modified"))
+        newer = slot + timedelta(minutes=INTERVAL_MIN)
+        key_new = key_for(newer, config.product)
+        response = _head(session, key_new)
+        if response is not None:
+            return (
+                key_new,
+                newer,
+                _parse_http_date(response.headers.get("Last-Modified")),
+            )
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(min(5.0, max(0.5, deadline - time.monotonic())))
 
 
 def fetch_slot(
@@ -127,24 +200,31 @@ def fetch_slot(
     slot: datetime,
     session: requests.Session | None = None,
 ) -> RadarObject | None:
-    """GET the composite at an exact 5-minute slot, or None if missing."""
+    """Reference the composite at an exact 5-minute slot, or None if missing."""
     session = session or _session(config)
     utc = slot.astimezone(timezone.utc).replace(second=0, microsecond=0)
     key = key_for(utc, config.product)
-    if not _head_ok(session, key):
+    response = _head(session, key)
+    if response is None:
         return None
-    url = object_url(key)
-    response = session.get(url, timeout=60)
-    response.raise_for_status()
-    return RadarObject(key=key, timestamp=utc, payload=response.content, url=url, requested=utc)
+    return _ref(
+        key, utc, utc, _parse_http_date(response.headers.get("Last-Modified"))
+    )
 
 
-def download_object(config: Config, key: str, timestamp: datetime, requested: datetime | None) -> RadarObject:
+def download_object(
+    config: Config, key: str, timestamp: datetime, requested: datetime | None
+) -> RadarObject:
     url = object_url(key)
     response = _session(config).get(url, timeout=60)
     response.raise_for_status()
     return RadarObject(
-        key=key, timestamp=timestamp, payload=response.content, url=url, requested=requested
+        key=key,
+        timestamp=timestamp,
+        url=url,
+        payload=response.content,
+        requested=requested,
+        published=_parse_http_date(response.headers.get("Last-Modified")),
     )
 
 
@@ -152,10 +232,16 @@ def fetch_radar(config: Config, now: datetime | None = None) -> RadarObject:
     session = _session(config)
     requested = config.when
     if requested is None:
-        key, timestamp = find_latest_key(config, now=now, session=session)
+        wall = now or datetime.now(timezone.utc)
+        target = expected_product_slot(wall, config.publish_lag_min)
+        polled = _poll_for_slot(config, target, session)
+        if polled is not None:
+            key, timestamp, published = polled
+        else:
+            key, timestamp, published = find_latest_key(config, now=wall, session=session)
     else:
-        key, timestamp = find_nearest_key(config, requested, session=session)
-    return download_object(config, key, timestamp, requested)
+        key, timestamp, published = find_nearest_key(config, requested, session=session)
+    return _ref(key, timestamp, requested, published)
 
 
 def fetch_history(config: Config, t0: datetime) -> dict[int, RadarObject]:

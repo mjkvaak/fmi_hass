@@ -6,8 +6,9 @@ from pathlib import Path
 from matplotlib import colormaps
 
 from fmi_radar.config import DEFAULT_BOX_KM, DEFAULT_LAT, DEFAULT_LON, THEMES, Config
+from fmi_radar.mqtt import report_unavailable
 from fmi_radar.pipeline import render_latest
-from fmi_radar.s3 import parse_timestamp
+from fmi_radar.timeout import call_with_timeout
 
 
 def _cmap_name(value: str) -> str:
@@ -102,7 +103,43 @@ def build_parser() -> argparse.ArgumentParser:
         "--gif",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Write output/radar.gif (T=-15 … T=+15) along with static maps. Use --no-gif to skip.",
+        help="Write output/radar.gif (T=0 … T=+15) along with static maps. Use --no-gif to skip.",
+    )
+    parser.add_argument(
+        "--gif-fps",
+        type=float,
+        default=3.0,
+        help="Animation frame rate (default: 3).",
+    )
+    parser.add_argument(
+        "--gif-step-min",
+        type=float,
+        default=2.5,
+        help="Minutes between interpolated nowcast frames (default: 2.5).",
+    )
+    parser.add_argument(
+        "--flow-arrows",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Draw optical-flow arrows on maps and the GIF. Use --no-flow-arrows to hide.",
+    )
+    parser.add_argument(
+        "--flow-arrow-density",
+        type=float,
+        default=0.01,
+        help="Arrows per km² of --box-km (default: 0.01). Use 0 or a negative value to hide arrows.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=240.0,
+        help="Abort download+render after this many seconds (default: 240).",
+    )
+    parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=60.0,
+        help="Wait this long for the expected S3 slot before falling back (default: 60).",
     )
     parser.add_argument(
         "--product",
@@ -135,6 +172,12 @@ def main(argv: list[str] | None = None) -> int:
         cmap_light=args.cmap_light,
         alert_alpha=args.alert_alpha,
         write_gif=args.gif,
+        gif_fps=args.gif_fps,
+        gif_step_min=args.gif_step_min,
+        show_flow_arrows=args.flow_arrows,
+        flow_arrow_density=args.flow_arrow_density,
+        poll_seconds=args.poll_seconds,
+        timeout_sec=args.timeout,
     )
     if args.product:
         config.product = args.product
@@ -148,7 +191,12 @@ def main(argv: list[str] | None = None) -> int:
         themes = [THEMES["dark"], THEMES["light"]]
     else:
         themes = [THEMES[args.theme]]
-    result = render_latest(config, themes=themes)
+    try:
+        result = call_with_timeout(config.timeout_sec, render_latest, config, themes)
+    except Exception as exc:
+        report_unavailable(config, str(exc))
+        print(f"unavailable: {exc}")
+        return 1
     for name, path in result.images.items():
         print(f"{name}: {path}")
     print(f"meta: {result.metadata_path}")
