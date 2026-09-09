@@ -1,9 +1,8 @@
 """Dense optical flow nowcast from recent FMI radar crops.
 
 Coarse-to-fine Horn–Schunck (numpy) on consecutive 5-minute frames, then
-advect T=0 forward. Avoids OpenCV, which has no musllinux wheels for Home
-Assistant Container (Alpine). A single-scale solve cannot track typical
-radar motion (many pixels per 5 minutes) and looks like diffusion.
+advect T=0 forward. A single-scale solve cannot track typical radar motion
+(many pixels per 5 minutes) and looks like diffusion.
 """
 
 from __future__ import annotations
