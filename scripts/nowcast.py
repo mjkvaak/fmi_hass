@@ -6,6 +6,14 @@
   python scripts/nowcast.py --time 202609040300 --lat YOUR_LAT --lon YOUR_LON
 """
 
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "custom_components"))
+
 from fmi_radar.nowcast import main
 
 if __name__ == "__main__":

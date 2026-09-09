@@ -1,95 +1,70 @@
 # FMI precipitation radar for Home Assistant
 
-Standalone Python tool: pull the latest FMI radar GeoTIFF from the public AWS S3 bucket, crop around a location, overlay rain on a map, and emit **DRY/RAIN** plus mean rain rate for Home Assistant over MQTT (or files).
+HACS custom integration: crop FMI precipitation radar around a location, overlay rain on a map, and expose **DRY/RAIN**, rain rate, 5/10/15-minute nowcasts, and map cameras inside Home Assistant.
 
-This is **not** a HACS custom component yet. Run it on a machine that can reach S3 and your MQTT broker (the HASS host, a sidecar VM, or the same box as Mosquitto). A HACS integration would need a public GitHub repo; keep this private and use MQTT until you want that.
+Polling **starts when Home Assistant loads the integration** and **stops when HA shuts down**, or when you disable/remove the entry.
 
-## Quick start
+Add it as a [HACS custom repository](https://www.hacs.xyz/docs/faq/custom_repositories/) (type **Integration**). HACS expects the [integration layout](https://www.hacs.xyz/docs/publish/integration/) used here: `hacs.json` at the repo root and `custom_components/fmi_radar/`.
+
+Typical HACS custom repositories need a **public** GitHub repo ([HACS general requirements](https://www.hacs.xyz/docs/publish/start/)).
+
+## Install with HACS
+
+1. HACS → ⋮ → **Custom repositories** → URL `https://github.com/mjkvaak/fmi_hass` → type **Integration** → **Add** ([steps](https://www.hacs.xyz/docs/faq/custom_repositories/)).
+2. Download **FMI Precipitation Radar**.
+3. **Restart Home Assistant** (required after adding a custom component). First start may take a while while HA installs `rasterio`, `opencv-python-headless`, and map libraries.
+4. Settings → Devices & services → **Add integration** → FMI Precipitation Radar.
+5. Set **latitude / longitude** (defaults to your Home Assistant location), **map box (km)**, **alert zone radius (km)**, optical-flow padding, theme, GIF, and update interval. Theme **hass** (the default) styles the GIF and stills from the backend-selected HA theme when that can be inferred (theme name or background color); if HA is on the built-in default theme, **sun.sun** is used as a stand-in because each browser’s Auto dark/light mode is not visible to the backend. Force **dark** or **light** if you want a fixed map.
+
+Change those later under the integration’s **Configure** options; HA reloads the entry so polling picks up the new values.
+
+## Entities
+
+| Entity | Meaning |
+| --- | --- |
+| `sensor.*_status` | `RAIN` / `DRY` |
+| `sensor.*_mean_rr` / `max_rr` | mm/h inside the alert disk |
+| `sensor.*_timestamp` | Product time (UTC) |
+| `binary_sensor.*_raining` | Alert disk wet now |
+| `binary_sensor.*_will_rain_*` | Optical-flow nowcast at +5 / +10 / +15 min |
+| `camera.*_map` | PNG still |
+| `camera.*_nowcast` | GIF T=0…+15 |
+
+Maps are also written to `/config/www/fmi_radar/<entry>/` so Lovelace can use `/local/fmi_radar/<entry>/output.png` or `radar.gif`.
+
+```yaml
+type: picture-entity
+entity: camera.fmi_radar_map
+show_state: false
+```
+
+## Data notes
+
+FMI GeoTIFF: `Z[dBZ] = 0.5 * pixel - 32`. Rain rate uses Marshall–Palmer `Z = 200 R^1.6`. Linear colour scale 0–8 mm/h. Radar © FMI (CC BY 4.0); map © OSM.
+
+Optical flow uses T=−15…0 on `box_km` plus `of_padding_km`, then advects up to 30 minutes. Live T=0 is aligned toward wall-clock now so S3 publish lag is absorbed. Historic CLI `--time` keeps T=0 at the requested composite.
+
+## CLI (optional, same library)
+
+For local debugging without Home Assistant:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then set FMI_RADAR_LAT / LON to your site
+export PYTHONPATH=custom_components
 python -m fmi_radar --theme dark --format both
 ```
 
-Stable Lovelace files (copied from the first rendered theme):
+MQTT publish remains available on the CLI only (`FMI_RADAR_MQTT_HOST`); the integration uses native HA entities instead.
 
-- `output/output.svg`
-- `output/output.png`
-- `output/status.txt` — `RAIN`, `DRY`, or `unavailable`
-- `output/mean_rr.txt` — spatial mean mm/h inside the 2 km alert disk
-- `output/radar.json` — full metadata
-- `output/radar.npz` / `radar_prev.npz` — arrays for analysis
-- `output/will_rain_in_5_minutes.txt` (also 10 and 15) — `true` / `false` / `unknown`
-- `output/radar.gif` — T=0…+15 nowcast with interpolated frames (on by default; `--no-gif` to skip)
-
-Optical flow uses T=−15…0 on `--box-km` plus `--of-padding-km` (default 50 km), then advects up to **30 minutes**. For live runs, T=0 is the lead closest to **wall-clock now** (so S3 publish lag is absorbed); the GIF only shows T=0…+15 from that origin and drops frames that would exceed +30 from the product. Historic `--time` keeps T=0 at the requested composite. GIF: 2.5-minute steps, pause on first/last frame, **forward loop**. Arrows: at most `box_km² / 100`. Download+render aborts after 4 minutes (`--timeout`) and MQTT becomes `unavailable`.
-
-## CLI
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--lat` `--lon` | Helsinki example / env | Crop centre (WGS84) |
-| `--box-km` | 10 | Map crop size (km) |
-| `--of-padding-km` | 20 | Optical-flow margin on each side of the map (km) |
-| `--warn-radius-km` | 2 | Alert disk drawn on the map; RAIN if any pixel ≥ 0.1 mm/h |
-| `--theme` | both | `dark`, `light`, or `both` |
-| `--cmap` | rainbow | Any matplotlib colormap name (`rainbow`, `turbo`, `plasma`, …) |
-| `--cmap-dark` `--cmap-light` | | Per-theme cmap |
-| `--alert-alpha` | 0.05 | Warning-disk fill opacity (0–1) |
-| `--format` | png | `png`, `svg`, or `both` |
-| `--time` | latest | Historic UTC compact `YYYYMMDDHHMM` or ISO |
-| `--mqtt-host` | env `FMI_RADAR_MQTT_HOST` | Publish retained MQTT messages |
-| `--gif` | on | Write `output/radar.gif` (T=0…+15). `--no-gif` skips it. |
-| `--gif-fps` | 3 | Animation frame rate |
-| `--gif-step-min` | 2.5 | Interpolated minutes between GIF frames |
-| `--flow-arrows` | on | Optical-flow arrows on stills and GIF |
-| `--flow-arrow-density` | 0.01 | Arrows per km²; `0` or negative hides them |
-| `--timeout` | 240 | Abort run after this many seconds |
-| `--poll-seconds` | 60 | Wait for the expected S3 slot |
-| `--outdir` | output | Destination for images + status |
+## Tests
 
 ```bash
-python -m fmi_radar --cmap turbo --theme dark --format both
-python -m fmi_radar --time 202609040300 --theme dark --format both
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
-Optical flow + animation (`output/radar.gif` is written with the static maps; `--no-gif` to skip):
+## Sidecar / MQTT
 
-```bash
-source .venv/bin/activate
-python -m fmi_radar --theme dark --format both --cmap turbo
-python -m fmi_radar.nowcast --time 202609040300 --lat YOUR_LAT --lon YOUR_LON
-```
-
-Naive `--time` values are Europe/Helsinki; 12-digit compact times are UTC.
-
-## Take into use with Home Assistant
-
-Follow **[docs/hass.md](docs/hass.md)**. Short version:
-
-1. Point `--lat/--lon` (or `.env`) at your site. Do not commit those values.
-2. Run every 5 minutes (systemd timer or cron) with `--format both --theme dark` into a directory Home Assistant can read (for example `/config/www/fmi_radar/` or a bind-mounted folder). That writes `output.png` and `radar.gif`.
-3. Publish MQTT (`FMI_RADAR_MQTT_HOST` + user/password in the environment, never in git).
-4. Add MQTT sensors for `fmi_radar/status` and `fmi_radar/mean_rr`, and pick a Lovelace card on `output.png` (still) or `radar.gif` (animation).
-
-## Data notes
-
-FMI GeoTIFF: `Z[dBZ] = 0.5 * pixel - 32`. Rain rate uses Marshall–Palmer `Z = 200 R^1.6`. The bucket currently has reflectivity, not a separate RR raster. Linear colour scale 0–8 mm/h. Radar © FMI (CC BY 4.0); map © OSM.
-
-Historic objects are only kept for about a week. Older days may use a different S3 key layout.
-
-## Library
-
-```python
-from pathlib import Path
-from fmi_radar import Config, render_latest
-from fmi_radar.config import THEMES
-
-render_latest(
-    Config(lat=60.1719, lon=24.9414, outdir=Path("/config/www/fmi_radar"), image_formats=("png", "svg")),
-    themes=[THEMES["dark"]],
-)
-```
+The previous timer + MQTT path still works if you run the CLI on a schedule. See **[docs/hass.md](docs/hass.md)** for Mosquitto and systemd notes. Prefer the HACS integration when HA can reach FMI S3.
