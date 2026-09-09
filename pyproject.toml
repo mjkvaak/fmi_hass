@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fmi-radar"
-version = "0.2.2"
+version = "0.2.3"
 description = "FMI precipitation radar for Home Assistant (HACS custom integration)"
 readme = "README.md"
 requires-python = ">=3.11"

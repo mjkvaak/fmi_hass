@@ -1,8 +1,9 @@
 """Dense optical flow nowcast from recent FMI radar crops.
 
-Horn–Schunck (numpy) on T=-10 → T=-5 and T=-5 → T=0, then advect T=0
-forward. Avoids OpenCV, which has no musllinux wheels for Home Assistant
-Container (Alpine).
+Coarse-to-fine Horn–Schunck (numpy) on consecutive 5-minute frames, then
+advect T=0 forward. Avoids OpenCV, which has no musllinux wheels for Home
+Assistant Container (Alpine). A single-scale solve cannot track typical
+radar motion (many pixels per 5 minutes) and looks like diffusion.
 """
 
 from __future__ import annotations
@@ -13,12 +14,17 @@ from time import perf_counter
 
 import numpy as np
 
-from .config import INTERVAL_MIN, Config
+from .config import INTERVAL_MIN
 from .geo import sample_bilinear
 from .log import get_logger
 from .process import RadarCrop
 
 LOGGER = get_logger(__name__)
+
+_PYR_MIN = 16
+_MAX_LEVELS = 5
+_HS_ALPHA = 15.0
+_HS_ITERS = 40
 
 
 def _gray(crop: RadarCrop) -> np.ndarray:
@@ -43,32 +49,95 @@ def _smooth3(field: np.ndarray) -> np.ndarray:
     ) / 16.0
 
 
-def pair_flow(prev: RadarCrop, nxt: RadarCrop) -> np.ndarray:
-    """flow[...,0]=dx (cols), flow[...,1]=dy (rows), pixels per 5-minute step."""
-    if prev.rr.shape != nxt.rr.shape:
-        raise ValueError("Nowcast frames must share the same crop shape")
-    t0 = perf_counter()
-    i1 = _gray(prev)
-    i2 = _gray(nxt)
-    ix = np.zeros_like(i1)
-    iy = np.zeros_like(i1)
-    ix[:, 1:-1] = (i1[:, 2:] - i1[:, :-2]) * 0.5
-    iy[1:-1, :] = (i1[2:, :] - i1[:-2, :]) * 0.5
+def _resize(field: np.ndarray, height: int, width: int) -> np.ndarray:
+    src_h, src_w = field.shape
+    if (src_h, src_w) == (height, width):
+        return field.astype(np.float32)
+    grid_y, grid_x = np.meshgrid(
+        np.linspace(0.0, src_h - 1.0, height, dtype=np.float32),
+        np.linspace(0.0, src_w - 1.0, width, dtype=np.float32),
+        indexing="ij",
+    )
+    return sample_bilinear(field.astype(np.float32), grid_x, grid_y)
+
+
+def _pyr_down(field: np.ndarray) -> np.ndarray:
+    height, width = field.shape
+    return _resize(_smooth3(field), max(height // 2, 1), max(width // 2, 1))
+
+
+def _upsample_flow(
+    u: np.ndarray, v: np.ndarray, shape: tuple[int, int]
+) -> tuple[np.ndarray, np.ndarray]:
+    height, width = shape
+    scale_x = width / u.shape[1]
+    scale_y = height / u.shape[0]
+    return _resize(u, height, width) * scale_x, _resize(v, height, width) * scale_y
+
+
+def _warp(field: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+    height, width = field.shape
+    grid_x, grid_y = np.meshgrid(
+        np.arange(width, dtype=np.float32),
+        np.arange(height, dtype=np.float32),
+    )
+    return sample_bilinear(field, grid_x + u, grid_y + v)
+
+
+def _gradients(field: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    ix = np.zeros_like(field)
+    iy = np.zeros_like(field)
+    ix[:, 1:-1] = (field[:, 2:] - field[:, :-2]) * 0.5
+    iy[1:-1, :] = (field[2:, :] - field[:-2, :]) * 0.5
+    return ix, iy
+
+
+def _horn_schunck(i1: np.ndarray, i2: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    ix1, iy1 = _gradients(i1)
+    ix2, iy2 = _gradients(i2)
+    ix = 0.5 * (ix1 + ix2)
+    iy = 0.5 * (iy1 + iy2)
     it = i2 - i1
     u = np.zeros_like(i1)
     v = np.zeros_like(i1)
-    alpha2 = 1.0
-    for _ in range(20):
+    alpha2 = _HS_ALPHA * _HS_ALPHA
+    for _ in range(_HS_ITERS):
         u_avg = _smooth3(u)
         v_avg = _smooth3(v)
         der = (ix * u_avg + iy * v_avg + it) / (alpha2 + ix * ix + iy * iy)
         u = u_avg - ix * der
         v = v_avg - iy * der
+    return u, v
+
+
+def pair_flow(prev: RadarCrop, nxt: RadarCrop) -> np.ndarray:
+    """flow[...,0]=dx (cols), flow[...,1]=dy (rows), pixels per 5-minute step."""
+    if prev.rr.shape != nxt.rr.shape:
+        raise ValueError("Nowcast frames must share the same crop shape")
+    t0 = perf_counter()
+    i1 = _smooth3(_gray(prev))
+    i2 = _smooth3(_gray(nxt))
+    pyramid = [(i1, i2)]
+    while len(pyramid) < _MAX_LEVELS:
+        current = pyramid[-1][0]
+        if min(current.shape) // 2 < _PYR_MIN:
+            break
+        pyramid.append((_pyr_down(pyramid[-1][0]), _pyr_down(pyramid[-1][1])))
+    u = np.zeros_like(pyramid[-1][0])
+    v = np.zeros_like(pyramid[-1][0])
+    for level, (p1, p2) in enumerate(reversed(pyramid)):
+        if level:
+            u, v = _upsample_flow(u, v, p1.shape)
+        warped = _warp(p2, u, v)
+        du, dv = _horn_schunck(p1, warped)
+        u = u + du
+        v = v + dv
     flow = np.stack((u, v), axis=-1).astype(np.float32)
     LOGGER.info(
-        "Optical flow %sx%s in %.2fs",
+        "Optical flow %sx%s (%s pyramid level(s)) in %.2fs",
         prev.rr.shape[0],
         prev.rr.shape[1],
+        len(pyramid),
         perf_counter() - t0,
     )
     return flow

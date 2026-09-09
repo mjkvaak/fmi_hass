@@ -5,7 +5,13 @@ from datetime import timedelta
 import numpy as np
 import pytest
 
-from fmi_radar.flow import advect_array, advect_crop, mean_step_flow, run_nowcast
+from fmi_radar.flow import (
+    advect_array,
+    advect_crop,
+    mean_step_flow,
+    pair_flow,
+    run_nowcast,
+)
 from tests.conftest import make_crop
 
 
@@ -14,6 +20,33 @@ def _uniform_flow(shape: tuple[int, int], dx: float, dy: float) -> np.ndarray:
     flow[..., 0] = dx
     flow[..., 1] = dy
     return flow
+
+
+def test_pair_flow_tracks_eastward_echo():
+    n = 96
+    shift = 12.0
+    sigma = 6.0
+    yy, xx = np.mgrid[0:n, 0:n]
+    prev_dbz = (
+        40.0 * np.exp(-((xx - 28.0) ** 2 + (yy - 48.0) ** 2) / (2.0 * sigma**2))
+    ).astype(np.float32)
+    nxt_dbz = (
+        40.0
+        * np.exp(-((xx - 28.0 - shift) ** 2 + (yy - 48.0) ** 2) / (2.0 * sigma**2))
+    ).astype(np.float32)
+    prev = make_crop(n=n, rr=(prev_dbz / 20.0).astype(np.float32))
+    nxt = make_crop(n=n, rr=(nxt_dbz / 20.0).astype(np.float32))
+    prev.dbzh = np.where(prev_dbz > 1.0, prev_dbz, np.nan)
+    nxt.dbzh = np.where(nxt_dbz > 1.0, nxt_dbz, np.nan)
+    flow = pair_flow(prev, nxt)
+    echo = prev_dbz > 8.0
+    assert float(flow[..., 0][echo].mean()) == pytest.approx(shift, abs=2.0)
+    assert abs(float(flow[..., 1][echo].mean())) < 1.0
+    moved = advect_array(np.nan_to_num(prev.dbzh), flow, steps=1.0)
+    mass = np.nan_to_num(moved)
+    weights = mass.sum()
+    centroid_x = float((mass.sum(0) * np.arange(n)).sum() / weights)
+    assert centroid_x == pytest.approx(28.0 + shift, abs=2.0)
 
 
 def test_advect_array_shifts_pulse_east():
