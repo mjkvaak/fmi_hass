@@ -9,13 +9,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from fmi_radar.cli import _cmap_name
-from fmi_radar.config import DEFAULT_BOX_KM, DEFAULT_LAT, DEFAULT_LON, THEMES, Config
-from fmi_radar.log import configure_cli_logging, get_logger
-from fmi_radar.mqtt import report_unavailable
-from fmi_radar.pipeline import render_latest
-from fmi_radar.s3 import parse_timestamp
-from fmi_radar.timeout import call_with_timeout
+from .cli import _cmap_name
+from .config import DEFAULT_BOX_KM, DEFAULT_LAT, DEFAULT_LON, THEMES, Config
+from .log import configure_cli_logging, get_logger
+from .mqtt import report_unavailable
+from .pipeline import render_latest
+from .s3 import parse_timestamp
+from .timeout import call_with_timeout
 
 LOGGER = get_logger(__name__)
 

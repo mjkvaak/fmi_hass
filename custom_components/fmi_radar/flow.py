@@ -1,7 +1,8 @@
 """Dense optical flow nowcast from recent FMI radar crops.
 
-Uses Farneback flow on T=-10 → T=-5 and T=-5 → T=0 (5-minute steps), averages
-those displacement fields, then advects T=0 forward to T=+5/+10/+15.
+Horn–Schunck (numpy) on T=-10 → T=-5 and T=-5 → T=0, then advect T=0
+forward. Avoids OpenCV, which has no musllinux wheels for Home Assistant
+Container (Alpine).
 """
 
 from __future__ import annotations
@@ -10,21 +11,36 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from time import perf_counter
 
-import cv2
 import numpy as np
 
-from fmi_radar.config import INTERVAL_MIN, Config
-from fmi_radar.log import get_logger
-from fmi_radar.process import RadarCrop
+from .config import INTERVAL_MIN, Config
+from .geo import sample_bilinear
+from .log import get_logger
+from .process import RadarCrop
 
 LOGGER = get_logger(__name__)
 
 
 def _gray(crop: RadarCrop) -> np.ndarray:
-    """Reflectivity as 8-bit for Farneback (empty echo → 0)."""
+    """Reflectivity as 8-bit (empty echo → 0)."""
     dbz = np.nan_to_num(crop.dbzh, nan=0.0)
     scaled = np.clip((dbz + 10.0) * (255.0 / 65.0), 0, 255)
-    return scaled.astype(np.uint8)
+    return scaled.astype(np.float32)
+
+
+def _smooth3(field: np.ndarray) -> np.ndarray:
+    padded = np.pad(field, 1, mode="edge")
+    return (
+        padded[:-2, :-2]
+        + 2.0 * padded[:-2, 1:-1]
+        + padded[:-2, 2:]
+        + 2.0 * padded[1:-1, :-2]
+        + 4.0 * padded[1:-1, 1:-1]
+        + 2.0 * padded[1:-1, 2:]
+        + padded[2:, :-2]
+        + 2.0 * padded[2:, 1:-1]
+        + padded[2:, 2:]
+    ) / 16.0
 
 
 def pair_flow(prev: RadarCrop, nxt: RadarCrop) -> np.ndarray:
@@ -32,20 +48,25 @@ def pair_flow(prev: RadarCrop, nxt: RadarCrop) -> np.ndarray:
     if prev.rr.shape != nxt.rr.shape:
         raise ValueError("Nowcast frames must share the same crop shape")
     t0 = perf_counter()
-    flow = cv2.calcOpticalFlowFarneback(
-        _gray(prev),
-        _gray(nxt),
-        None,
-        pyr_scale=0.5,
-        levels=3,
-        winsize=15,
-        iterations=3,
-        poly_n=5,
-        poly_sigma=1.2,
-        flags=0,
-    )
+    i1 = _gray(prev)
+    i2 = _gray(nxt)
+    ix = np.zeros_like(i1)
+    iy = np.zeros_like(i1)
+    ix[:, 1:-1] = (i1[:, 2:] - i1[:, :-2]) * 0.5
+    iy[1:-1, :] = (i1[2:, :] - i1[:-2, :]) * 0.5
+    it = i2 - i1
+    u = np.zeros_like(i1)
+    v = np.zeros_like(i1)
+    alpha2 = 1.0
+    for _ in range(20):
+        u_avg = _smooth3(u)
+        v_avg = _smooth3(v)
+        der = (ix * u_avg + iy * v_avg + it) / (alpha2 + ix * ix + iy * iy)
+        u = u_avg - ix * der
+        v = v_avg - iy * der
+    flow = np.stack((u, v), axis=-1).astype(np.float32)
     LOGGER.info(
-        "Farneback %sx%s in %.2fs",
+        "Optical flow %sx%s in %.2fs",
         prev.rr.shape[0],
         prev.rr.shape[1],
         perf_counter() - t0,
@@ -76,14 +97,7 @@ def advect_array(field: np.ndarray, flow: np.ndarray, steps: float) -> np.ndarra
     map_x = (grid_x - flow[..., 0] * steps).astype(np.float32)
     map_y = (grid_y - flow[..., 1] * steps).astype(np.float32)
     filled = np.nan_to_num(field, nan=0.0).astype(np.float32)
-    remapped = cv2.remap(
-        filled,
-        map_x,
-        map_y,
-        interpolation=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0.0,
-    )
+    remapped = sample_bilinear(filled, map_x, map_y)
     inside = (map_x >= 0) & (map_x <= width - 1) & (map_y >= 0) & (map_y <= height - 1)
     return np.where(inside, remapped, np.nan).astype(np.float32)
 

@@ -7,11 +7,10 @@ from typing import Literal
 
 import numpy as np
 from pyproj import Transformer
-from rasterio.transform import xy
 
-from fmi_radar.config import Config
-from fmi_radar.flow import advect_crop
-from fmi_radar.process import RadarCrop
+from .config import Config
+from .flow import advect_crop
+from .process import RadarCrop
 
 STATUS_RAIN = "RAIN"
 STATUS_DRY = "DRY"
@@ -48,7 +47,7 @@ def disk_mask(crop: RadarCrop, lat: float, lon: float, radius_km: float) -> np.n
     """True for pixel centres within ``radius_km`` of the home coordinate."""
     x0, y0 = _center_xy(crop, lat, lon)
     rows, cols = np.indices(crop.rr.shape)
-    xs, ys = xy(crop.transform, rows, cols, offset="center")
+    xs, ys = crop.transform.xy(rows, cols, offset="center")
     xs = np.asarray(xs, dtype=np.float64).reshape(crop.rr.shape)
     ys = np.asarray(ys, dtype=np.float64).reshape(crop.rr.shape)
     dist_m = np.hypot(xs - x0, ys - y0)

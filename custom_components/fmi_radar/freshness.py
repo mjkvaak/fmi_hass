@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fmi_radar.config import Config
-from fmi_radar.log import get_logger
+from .config import Config
+from .log import get_logger
 
 LOGGER = get_logger(__name__)
 

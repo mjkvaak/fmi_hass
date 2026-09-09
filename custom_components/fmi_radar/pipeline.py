@@ -8,16 +8,16 @@ from pathlib import Path
 from datetime import datetime, timezone
 from time import perf_counter
 
-from fmi_radar.alert import RainAlert, observed_rain, will_rain_flag
-from fmi_radar.config import THEMES, Config, Theme
-from fmi_radar.flow import advect_crop, run_nowcast
-from fmi_radar.freshness import ensure_live_product_fresh
-from fmi_radar.log import get_logger
-from fmi_radar.mqtt import publish_result
-from fmi_radar.persist import save_crop
-from fmi_radar.plot import get_basemap, render_map, write_radar_gif
-from fmi_radar.process import RadarCrop, crop_radar, crop_stats, extract_box, extract_flow
-from fmi_radar.s3 import fetch_history, fetch_radar
+from .alert import RainAlert, observed_rain, will_rain_flag
+from .config import THEMES, Config, Theme
+from .flow import advect_crop, run_nowcast
+from .freshness import ensure_live_product_fresh
+from .log import get_logger
+from .mqtt import publish_result
+from .persist import save_crop
+from .plot import get_basemap, render_map, write_radar_gif
+from .process import RadarCrop, crop_radar, crop_stats, extract_box, extract_flow
+from .s3 import fetch_history, fetch_radar
 
 LOGGER = get_logger(__name__)
 

@@ -8,14 +8,14 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from fmi_radar.config import (
+from .config import (
     BUCKET_HOST,
     INTERVAL_MIN,
     MAX_LOOKBACK_MIN,
     MAX_NEAREST_MIN,
     Config,
 )
-from fmi_radar.log import get_logger
+from .log import get_logger
 
 HELSINKI = ZoneInfo("Europe/Helsinki")
 LOGGER = get_logger(__name__)

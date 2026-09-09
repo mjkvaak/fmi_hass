@@ -11,7 +11,7 @@ from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 
-from fmi_radar.hass_config import default_setup_lat_lon
+from .hass_config import default_setup_lat_lon
 
 from .const import (
     CONF_BOX_KM,
@@ -114,12 +114,11 @@ class FmiRadarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
-        return FmiRadarOptionsFlow(config_entry)
+        return FmiRadarOptionsFlow()
 
 
 class FmiRadarOptionsFlow(config_entries.OptionsFlow):
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self._config_entry = config_entry
+    """Options flow; ``config_entry`` is set by Home Assistant (do not pass it in)."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -127,5 +126,5 @@ class FmiRadarOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        defaults = {**self._config_entry.data, **self._config_entry.options}
+        defaults = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(step_id="init", data_schema=_schema(self.hass, defaults))

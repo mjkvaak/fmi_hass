@@ -13,12 +13,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from fmi_radar.config import THEMES
-from fmi_radar.const import DEFAULT_SCAN_INTERVAL, DOMAIN, CONF_SCAN_INTERVAL
-from fmi_radar.freshness import StaleRadarError
-from fmi_radar.hass_config import config_from_entry
-from fmi_radar.ha_theme import resolve_map_theme
-from fmi_radar.pipeline import RenderResult, render_latest
+from .config import THEMES
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, CONF_SCAN_INTERVAL
+from .freshness import StaleRadarError
+from .hass_config import config_from_entry
+from .ha_theme import resolve_map_theme
+from .pipeline import RenderResult, render_latest
 
 _LOGGER = logging.getLogger(__name__)
 

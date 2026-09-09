@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from fmi_radar.alert import STATUS_RAIN, will_rain_flag
+from .alert import STATUS_RAIN, will_rain_flag
 
 from .const import DOMAIN
 from .coordinator import FmiRadarCoordinator

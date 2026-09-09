@@ -6,11 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
-import rasterio
-from rasterio.transform import Affine
 
-from fmi_radar.config import Config
-from fmi_radar.process import RadarCrop
+from .config import Config
+from .geo import GeoTransform
+from .process import RadarCrop
 
 LATEST_NAME = "radar.npz"
 PREV_NAME = "radar_prev.npz"
@@ -50,7 +49,7 @@ def save_crop(crop: RadarCrop, config: Config, outdir: Path) -> tuple[Path, Path
 
 def load_crop(path: Path) -> tuple[RadarCrop, dict[str, float]]:
     with np.load(path, allow_pickle=False) as data:
-        transform = Affine.from_gdal(*data["transform"].tolist())
+        transform = GeoTransform.from_gdal(*data["transform"].tolist())
         ts = datetime.fromtimestamp(float(data["timestamp_unix"]), tz=timezone.utc)
         crop = RadarCrop(
             dbzh=data["dbzh"],

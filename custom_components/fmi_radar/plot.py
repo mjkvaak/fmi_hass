@@ -9,25 +9,22 @@ from pathlib import Path
 from time import perf_counter
 from zoneinfo import ZoneInfo
 
-import contextily as cx
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import requests
 from matplotlib.colors import Normalize
 from matplotlib.ticker import FixedLocator, FormatStrFormatter
 from PIL import Image
 from matplotlib.patches import Polygon
 from pyproj import Transformer
-from rasterio.crs import CRS
-from rasterio.plot import plotting_extent
-from rasterio.transform import array_bounds, from_bounds as transform_from_bounds
-from rasterio.warp import Resampling, reproject
 
-from fmi_radar.config import Config, Theme
-from fmi_radar.log import get_logger
-from fmi_radar.process import RadarCrop, crop_stats
+from .config import Config, Theme
+from .geo import array_bounds, plotting_extent, sample_bilinear
+from .log import get_logger
+from .process import RadarCrop, crop_stats
 
 LOGGER = get_logger(__name__)
 
@@ -178,25 +175,72 @@ def _warp_basemap_to_crop(
     crop: RadarCrop,
     out_px: int,
 ) -> tuple[np.ndarray, tuple[float, float, float, float]]:
-    """Reproject OSM onto a square covering the radar crop (not the full tile mosaic)."""
+    """Sample OSM (Web Mercator) onto a square covering the radar crop."""
     min_x, max_x, min_y, max_y = extent_3857
     height, width, bands = tiles.shape
-    src_transform = transform_from_bounds(min_x, min_y, max_x, max_y, width, height)
     west, south, east, north = _src_bounds(crop)
-    dst_transform = transform_from_bounds(west, south, east, north, out_px, out_px)
-    dst_crs = CRS.from_string(crop.crs)
-    dst = np.zeros((bands, out_px, out_px), dtype=np.uint8)
+    xs = west + (np.arange(out_px) + 0.5) * (east - west) / out_px
+    ys = north - (np.arange(out_px) + 0.5) * (north - south) / out_px
+    grid_x, grid_y = np.meshgrid(xs, ys)
+    to_merc = Transformer.from_crs(crop.crs, WEB_MERCATOR, always_xy=True)
+    mx, my = to_merc.transform(grid_x.ravel(), grid_y.ravel())
+    mx = np.asarray(mx, dtype=np.float64).reshape(out_px, out_px)
+    my = np.asarray(my, dtype=np.float64).reshape(out_px, out_px)
+    col = (mx - min_x) / (max_x - min_x) * (width - 1e-6)
+    row = (max_y - my) / (max_y - min_y) * (height - 1e-6)
+    out = np.zeros((out_px, out_px, bands), dtype=np.uint8)
     for band in range(bands):
-        reproject(
-            source=tiles[:, :, band],
-            destination=dst[band],
-            src_transform=src_transform,
-            src_crs="EPSG:3857",
-            dst_transform=dst_transform,
-            dst_crs=dst_crs,
-            resampling=Resampling.bilinear,
-        )
-    return np.transpose(dst, (1, 2, 0)), (west, east, south, north)
+        sampled = sample_bilinear(tiles[:, :, band].astype(np.float32), col, row)
+        out[:, :, band] = np.clip(sampled, 0, 255).astype(np.uint8)
+    return out, (west, east, south, north)
+
+
+def _merc_to_tile(mx: float, my: float, zoom: int) -> tuple[float, float]:
+    origin = 20037508.342789244
+    n = 2**zoom
+    xtile = (mx + origin) / (2.0 * origin) * n
+    ytile = (origin - my) / (2.0 * origin) * n
+    return xtile, ytile
+
+
+def _fetch_osm_mosaic(
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    zoom: int,
+    theme: Theme,
+    user_agent: str,
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Download OSM XYZ tiles covering a Web Mercator AABB (no GDAL)."""
+    origin = 20037508.342789244
+    n = 2**zoom
+    x0, y_south = _merc_to_tile(west, south, zoom)
+    x1, y_north = _merc_to_tile(east, north, zoom)
+    tx0 = max(0, int(math.floor(min(x0, x1))))
+    tx1 = min(n - 1, int(math.floor(max(x0, x1))))
+    ty0 = max(0, int(math.floor(min(y_south, y_north))))
+    ty1 = min(n - 1, int(math.floor(max(y_south, y_north))))
+    tile_px = 256
+    mosaic = np.zeros(((ty1 - ty0 + 1) * tile_px, (tx1 - tx0 + 1) * tile_px, 4), dtype=np.uint8)
+    session = requests.Session()
+    session.headers.update({"User-Agent": user_agent})
+    provider = theme.basemap
+    for ty in range(ty0, ty1 + 1):
+        for tx in range(tx0, tx1 + 1):
+            url = provider.build_url(x=tx, y=ty, z=zoom)
+            response = session.get(url, timeout=30)
+            response.raise_for_status()
+            with Image.open(io.BytesIO(response.content)) as tile:
+                arr = np.array(tile.convert("RGBA"))
+            row = (ty - ty0) * tile_px
+            col = (tx - tx0) * tile_px
+            mosaic[row : row + tile_px, col : col + tile_px] = arr
+    min_x = tx0 / n * (2.0 * origin) - origin
+    max_x = (tx1 + 1) / n * (2.0 * origin) - origin
+    max_y = origin - ty0 / n * (2.0 * origin)
+    min_y = origin - (ty1 + 1) / n * (2.0 * origin)
+    return mosaic, (min_x, max_x, min_y, max_y)
 
 
 def _basemap_in_radar_crs(crop: RadarCrop, config: Config, theme: Theme):
@@ -207,16 +251,14 @@ def _basemap_in_radar_crs(crop: RadarCrop, config: Config, theme: Theme):
     west, south, east, north = _mercator_aabb(crop)
     zoom = _tile_zoom(config.box_km)
     t_fetch = perf_counter()
-    tiles, extent_3857 = cx.bounds2img(
+    tiles, extent_3857 = _fetch_osm_mosaic(
         west,
         south,
         east,
         north,
-        ll=False,
-        zoom=zoom,
-        source=theme.basemap,
-        use_cache=True,
-        headers={"User-Agent": config.user_agent},
+        zoom,
+        theme,
+        config.user_agent,
     )
     LOGGER.info(
         "OSM tiles theme=%s zoom=%s mosaic=%sx%s in %.1fs",
@@ -372,7 +414,7 @@ def _draw_radar_figure(
 ):
     values = crop.dbzh if config.quantity == "dbzh" else crop.rr
     west, south, east, north = _src_bounds(crop)
-    radar_extent = plotting_extent(values, crop.transform)
+    radar_extent = plotting_extent(values.shape[0], values.shape[1], crop.transform)
     data = _mask_overlay(values, config)
     norm, cbar_label = _color_scale(config)
 

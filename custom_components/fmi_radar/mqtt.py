@@ -8,13 +8,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from fmi_radar.alert import STATUS_UNAVAILABLE
-from fmi_radar.log import get_logger
+from .alert import STATUS_UNAVAILABLE
+from .log import get_logger
 
 if TYPE_CHECKING:
-    from fmi_radar.alert import RainAlert
-    from fmi_radar.config import Config
-    from fmi_radar.pipeline import RenderResult
+    from .alert import RainAlert
+    from .config import Config
+    from .pipeline import RenderResult
 
 HEALTH_OK = "ok"
 HEALTH_UNAVAILABLE = "unavailable"

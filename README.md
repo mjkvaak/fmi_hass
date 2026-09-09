@@ -10,7 +10,7 @@ Add it as a [HACS custom repository](https://www.hacs.xyz/docs/faq/custom_reposi
 
 1. HACS → ⋮ → **Custom repositories** → URL `https://github.com/mjkvaak/fmi_hass` → type **Integration** → **Add** ([steps](https://www.hacs.xyz/docs/faq/custom_repositories/)).
 2. Download **FMI Precipitation Radar**.
-3. **Restart Home Assistant** (required after adding a custom component). First start may take a while while HA installs `rasterio`, `opencv-python-headless`, and map libraries.
+3. **Restart Home Assistant** (required after adding a custom component). First start installs `matplotlib` and `pyproj` only — not GDAL/OpenCV, which cannot be built inside Home Assistant Container (Alpine).
 4. Settings → Devices & services → **Add integration** → FMI Precipitation Radar.
 5. Set **latitude / longitude** (defaults to the Home Assistant home location, or Helsinki centre if that is unset), **map box (km)**, **alert zone radius (km)**, optical-flow padding, theme, GIF, and update interval. Theme **hass** (the default) styles the GIF and stills from the backend-selected HA theme when that can be inferred (theme name or background color); if HA is on the built-in default theme, **sun.sun** is used as a stand-in because each browser’s Auto dark/light mode is not visible to the backend. Force **dark** or **light** if you want a fixed map.
 

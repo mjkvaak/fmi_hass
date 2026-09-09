@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 from pyproj import Transformer
-from rasterio.transform import from_origin
 
 from fmi_radar.config import Config
+from fmi_radar.geo import GeoTransform
 from fmi_radar.process import RadarCrop
 
 LAT = 60.1719  # Helsinki centre (public example)
@@ -31,7 +31,7 @@ def make_crop(
     x, y = home_xy(lat, lon)
     half = (n / 2.0) * res
     west, north = x - half, y + half
-    transform = from_origin(west, north, res, res)
+    transform = GeoTransform.from_origin(west, north, res, res)
     if rr is None:
         field = np.zeros((n, n), dtype=np.float32)
     else:

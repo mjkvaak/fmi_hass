@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
 
-from fmi_radar.hass_config import infer_ha_light_dark, theme_name
+from .hass_config import infer_ha_light_dark, theme_name
 
 
 def frontend_theme_snapshot(hass: HomeAssistant) -> dict:

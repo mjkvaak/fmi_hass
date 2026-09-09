@@ -1,17 +1,15 @@
-"""FMI precipitation radar fetch, crop, map render, and Home Assistant integration."""
+"""FMI precipitation radar for Home Assistant.
+
+Keep this module light: Home Assistant imports it when the config flow opens.
+GIS rendering stays in the pipeline and is loaded only after setup.
+"""
 
 from __future__ import annotations
 
-from .alert import RainAlert
-from .config import Config, Theme
-from .pipeline import RenderResult, render_latest
+from .const import DOMAIN
 
 __all__ = [
-    "Config",
-    "Theme",
-    "RainAlert",
-    "RenderResult",
-    "render_latest",
+    "DOMAIN",
     "async_setup_entry",
     "async_unload_entry",
 ]

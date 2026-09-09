@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fmi_radar.config import DEFAULT_LAT, DEFAULT_LON, Config
-from fmi_radar.const import (
+from .config import DEFAULT_LAT, DEFAULT_LON, Config
+from .const import (
     CONF_ALERT_ALPHA,
     CONF_BOX_KM,
     CONF_CMAP,
