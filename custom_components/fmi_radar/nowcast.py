@@ -11,10 +11,13 @@ from pathlib import Path
 
 from fmi_radar.cli import _cmap_name
 from fmi_radar.config import DEFAULT_BOX_KM, DEFAULT_LAT, DEFAULT_LON, THEMES, Config
+from fmi_radar.log import configure_cli_logging, get_logger
 from fmi_radar.mqtt import report_unavailable
 from fmi_radar.pipeline import render_latest
 from fmi_radar.s3 import parse_timestamp
 from fmi_radar.timeout import call_with_timeout
+
+LOGGER = get_logger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_cli_logging()
     args = build_parser().parse_args(argv)
     config = Config(
         lat=args.lat,
@@ -90,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = call_with_timeout(config.timeout_sec, render_latest, config, [THEMES[args.theme]])
     except Exception as exc:
+        LOGGER.exception("Nowcast failed")
         report_unavailable(config, str(exc))
         print(f"unavailable: {exc}")
         return 1

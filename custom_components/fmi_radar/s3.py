@@ -15,6 +15,10 @@ from fmi_radar.config import (
     MAX_NEAREST_MIN,
     Config,
 )
+from fmi_radar.log import get_logger
+
+HELSINKI = ZoneInfo("Europe/Helsinki")
+LOGGER = get_logger(__name__)
 
 HELSINKI = ZoneInfo("Europe/Helsinki")
 
@@ -139,7 +143,9 @@ def find_latest_key(
         key = key_for(slot, config.product)
         response = _head(session, key)
         if response is not None:
+            LOGGER.info("Found latest composite %s", key)
             return key, slot, _parse_http_date(response.headers.get("Last-Modified"))
+        LOGGER.debug("Missing composite %s", key)
         slot -= timedelta(minutes=INTERVAL_MIN)
     raise FileNotFoundError(
         f"No {config.product!r} object in the last {MAX_LOOKBACK_MIN} minutes"
@@ -237,7 +243,9 @@ def fetch_radar(config: Config, now: datetime | None = None) -> RadarObject:
         polled = _poll_for_slot(config, target, session)
         if polled is not None:
             key, timestamp, published = polled
+            LOGGER.info("Polled expected slot %s", key)
         else:
+            LOGGER.warning("Expected S3 slot not ready within poll window; walking back")
             key, timestamp, published = find_latest_key(config, now=wall, session=session)
     else:
         key, timestamp, published = find_nearest_key(config, requested, session=session)
@@ -254,6 +262,9 @@ def fetch_history(config: Config, t0: datetime) -> dict[int, RadarObject]:
         obj = fetch_slot(config, t0 + timedelta(minutes=rel), session=session)
         if obj is not None:
             frames[rel] = obj
+        else:
+            LOGGER.warning("History slot T=%s min missing", rel)
+    LOGGER.debug("Fetched history frames %s", sorted(frames))
     return frames
 
 
