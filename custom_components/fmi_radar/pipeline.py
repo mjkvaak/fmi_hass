@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from datetime import datetime, timezone
+from time import perf_counter
 
 from fmi_radar.alert import RainAlert, observed_rain, will_rain_flag
 from fmi_radar.config import THEMES, Config, Theme
@@ -14,11 +15,27 @@ from fmi_radar.freshness import ensure_live_product_fresh
 from fmi_radar.log import get_logger
 from fmi_radar.mqtt import publish_result
 from fmi_radar.persist import save_crop
-from fmi_radar.plot import render_map, write_radar_gif
+from fmi_radar.plot import get_basemap, render_map, write_radar_gif
 from fmi_radar.process import RadarCrop, crop_radar, crop_stats, extract_box, extract_flow
 from fmi_radar.s3 import fetch_history, fetch_radar
 
 LOGGER = get_logger(__name__)
+
+
+class _Steps:
+    def __init__(self) -> None:
+        self.t0 = perf_counter()
+        self.mark = self.t0
+
+    def info(self, msg: str, *args) -> None:
+        now = perf_counter()
+        LOGGER.info(
+            "+%.1fs  Δ%.1fs  " + msg,
+            now - self.t0,
+            now - self.mark,
+            *args,
+        )
+        self.mark = now
 
 
 @dataclass
@@ -147,6 +164,7 @@ def render_latest(
     config = config or Config()
     themes = themes or [THEMES["dark"]]
     config.outdir.mkdir(parents=True, exist_ok=True)
+    steps = _Steps()
     LOGGER.info(
         "Starting radar update lat=%.4f lon=%.4f box=%.1f km alert=%.1f km historic=%s",
         config.lat,
@@ -157,17 +175,23 @@ def render_latest(
     )
 
     t0_obj = fetch_radar(config)
-    LOGGER.info("Using FMI object %s (product %s)", t0_obj.key, t0_obj.timestamp.isoformat())
+    steps.info("Using FMI object %s (product %s)", t0_obj.key, t0_obj.timestamp.isoformat())
     ensure_live_product_fresh(t0_obj.timestamp, config)
     history_objs = fetch_history(config, t0_obj.timestamp)
     history_objs.setdefault(0, t0_obj)
-    LOGGER.debug("History offsets present: %s", sorted(history_objs))
+    steps.info("History offsets present: %s", sorted(history_objs))
 
     flow_km = config.flow_box_km
     flow_config = replace(config, box_km=flow_km, of_padding_km=0.0)
-    history_crops = {
-        offset: crop_radar(obj, flow_config) for offset, obj in history_objs.items()
-    }
+    history_crops = {}
+    for offset, obj in sorted(history_objs.items()):
+        history_crops[offset] = crop_radar(obj, flow_config)
+        steps.info(
+            "Cropped T=%s min flow window %sx%s",
+            offset,
+            history_crops[offset].rr.shape[0],
+            history_crops[offset].rr.shape[1],
+        )
     t0_flow = history_crops[0]
     nowcast = run_nowcast(history_crops, config.nowcast_lead_min)
     if not nowcast.flow_available:
@@ -175,7 +199,7 @@ def render_latest(
     align_min = _align_lead_min(t0_flow.timestamp, config) if nowcast.flow is not None else 0.0
     anim_horizon = min(float(max(config.nowcast_lead_min)), config.max_advect_min - align_min)
     anim_horizon = max(0.0, anim_horizon)
-    LOGGER.info(
+    steps.info(
         "Nowcast flow=%s align=%.1f min anim_horizon=%.1f min",
         nowcast.flow_available,
         align_min,
@@ -192,6 +216,13 @@ def render_latest(
         display_flow = extract_flow(
             nowcast.flow, t0_flow, config.lat, config.lon, config.box_km
         )
+    steps.info(
+        "Display crop %sx%s (map box %.1f km; flow was %.1f km)",
+        display.rr.shape[0],
+        display.rr.shape[1],
+        config.box_km,
+        flow_km,
+    )
 
     alert = observed_rain(aligned_flow, config)
     nowcast_alerts: dict[int, RainAlert] = {}
@@ -210,25 +241,39 @@ def render_latest(
             )
         will_rain[lead] = will_rain_flag(nowcast_alerts.get(lead))
         (config.outdir / f"{_will_rain_key(lead)}.txt").write_text(will_rain[lead] + "\n")
+    steps.info("Alerts and will_rain flags written")
 
     array_path, _prev = save_crop(display, config, config.outdir)
     status_path = config.outdir / "status.txt"
     status_path.write_text(alert.payload() + "\n")
     (config.outdir / "mean_rr.txt").write_text(f"{alert.mean_rr_mmh:.4f}\n")
+    steps.info("Persisted radar.npz and status files")
 
     images: dict[str, Path] = {}
     gif_path: Path | None = None
     gif_theme = themes[0] if themes else THEMES["dark"]
+    basemap_by_theme: dict[str, tuple] = {}
     if not config.skip_images:
         for theme in themes:
+            basemap_by_theme[theme.name] = get_basemap(display, config, theme)
+            steps.info("Basemap ready theme=%s", theme.name)
             paths, _cached = render_map(
-                display, config, theme, _image_paths(config, theme), flow=display_flow
+                display,
+                config,
+                theme,
+                _image_paths(config, theme),
+                flow=display_flow,
+                cached_basemap=basemap_by_theme[theme.name],
             )
             for path in paths:
                 images[f"{theme.name}_{path.suffix.lstrip('.')}"] = path
+            steps.info("Rendered still theme=%s", theme.name)
         stable = _write_stable_images(images, config.outdir)
     else:
         stable = {}
+        if config.write_gif:
+            basemap_by_theme[gif_theme.name] = get_basemap(display, config, gif_theme)
+            steps.info("Prepared GIF basemap theme=%s (no stills)", gif_theme.name)
 
     if config.write_gif:
         sequence: list[tuple[float, RadarCrop]] = []
@@ -245,13 +290,16 @@ def render_latest(
                     )
                 )
         if sequence:
+            steps.info("Built %s GIF frame crop(s)", len(sequence))
             gif_path = write_radar_gif(
                 sequence,
                 config,
                 gif_theme,
                 config.outdir / "radar.gif",
                 flow=display_flow,
+                cached_basemap=basemap_by_theme.get(gif_theme.name),
             )
+            steps.info("Wrote GIF (%s frames) %s", len(sequence), gif_path)
             images["gif"] = gif_path
 
     metadata = _metadata(
@@ -288,7 +336,7 @@ def render_latest(
         metadata=metadata,
     )
     publish_result(config, result)
-    LOGGER.info(
+    steps.info(
         "Update done status=%s mean_rr=%.2f mm/h gif=%s",
         alert.status,
         alert.mean_rr_mmh,

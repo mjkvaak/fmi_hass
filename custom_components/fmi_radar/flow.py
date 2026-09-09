@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from time import perf_counter
 
 import cv2
 import numpy as np
@@ -30,7 +31,8 @@ def pair_flow(prev: RadarCrop, nxt: RadarCrop) -> np.ndarray:
     """flow[...,0]=dx (cols), flow[...,1]=dy (rows), pixels per 5-minute step."""
     if prev.rr.shape != nxt.rr.shape:
         raise ValueError("Nowcast frames must share the same crop shape")
-    return cv2.calcOpticalFlowFarneback(
+    t0 = perf_counter()
+    flow = cv2.calcOpticalFlowFarneback(
         _gray(prev),
         _gray(nxt),
         None,
@@ -42,6 +44,13 @@ def pair_flow(prev: RadarCrop, nxt: RadarCrop) -> np.ndarray:
         poly_sigma=1.2,
         flags=0,
     )
+    LOGGER.info(
+        "Farneback %sx%s in %.2fs",
+        prev.rr.shape[0],
+        prev.rr.shape[1],
+        perf_counter() - t0,
+    )
+    return flow
 
 
 def mean_step_flow(crops: dict[int, RadarCrop]) -> np.ndarray | None:

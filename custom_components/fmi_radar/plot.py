@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import math
 import os
 from pathlib import Path
+from time import perf_counter
 from zoneinfo import ZoneInfo
 
 import contextily as cx
@@ -17,11 +20,16 @@ from matplotlib.ticker import FixedLocator, FormatStrFormatter
 from PIL import Image
 from matplotlib.patches import Polygon
 from pyproj import Transformer
+from rasterio.crs import CRS
 from rasterio.plot import plotting_extent
-from rasterio.transform import array_bounds
+from rasterio.transform import array_bounds, from_bounds as transform_from_bounds
+from rasterio.warp import Resampling, reproject
 
 from fmi_radar.config import Config, Theme
+from fmi_radar.log import get_logger
 from fmi_radar.process import RadarCrop, crop_stats
+
+LOGGER = get_logger(__name__)
 
 HELSINKI = ZoneInfo("Europe/Helsinki")
 WEB_MERCATOR = "EPSG:3857"
@@ -44,6 +52,15 @@ def _src_bounds(crop: RadarCrop) -> tuple[float, float, float, float]:
     return array_bounds(height, width, crop.transform)
 
 
+def _tile_zoom(box_km: float) -> int:
+    """Cap OSM zoom so a 40 km crop does not warp a huge tile mosaic."""
+    if box_km >= 35:
+        return 10
+    if box_km >= 18:
+        return 11
+    return 12
+
+
 def _mercator_aabb(crop: RadarCrop) -> tuple[float, float, float, float]:
     """Axis-aligned Web Mercator box covering the ETRS-TM35FIN crop (for OSM tile fetch)."""
     west, south, east, north = _src_bounds(crop)
@@ -55,22 +72,188 @@ def _mercator_aabb(crop: RadarCrop) -> tuple[float, float, float, float]:
     return float(np.min(mx)), float(np.min(my)), float(np.max(mx)), float(np.max(my))
 
 
+def _basemap_source_id(theme: Theme) -> str:
+    src = theme.basemap
+    if hasattr(src, "get"):
+        return str(src.get("name", src))
+    return str(src)
+
+
+def _basemap_out_size(config: Config) -> int:
+    """Warp onto a grid sized for stills so matplotlib is not resampling a huge mosaic."""
+    return int(max(256, min(1280, round(config.figsize * config.dpi))))
+
+
+def _basemap_cache_id(crop: RadarCrop, config: Config, theme: Theme) -> str:
+    west, south, east, north = _src_bounds(crop)
+    payload = {
+        "lat": round(config.lat, 4),
+        "lon": round(config.lon, 4),
+        "box_km": round(config.box_km, 3),
+        "theme": theme.name,
+        "zoom": _tile_zoom(config.box_km),
+        "out": _basemap_out_size(config),
+        "crs": crop.crs,
+        "bounds_m": [round(west), round(south), round(east), round(north)],
+        "source": _basemap_source_id(theme),
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _basemap_cache_path(config: Config, cache_id: str) -> Path:
+    return config.resolved_cache_dir() / f"basemap-{cache_id}.npz"
+
+
+def load_basemap_cache(
+    crop: RadarCrop, config: Config, theme: Theme
+) -> tuple[np.ndarray, tuple[float, float, float, float]] | None:
+    path = _basemap_cache_path(config, _basemap_cache_id(crop, config, theme))
+    if not path.is_file():
+        return None
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            tiles = data["tiles"]
+            extent = tuple(float(v) for v in data["extent"].tolist())
+        if tiles.ndim != 3 or len(extent) != 4:
+            return None
+        LOGGER.info("Basemap disk cache hit %s shape=%sx%s", path.name, tiles.shape[0], tiles.shape[1])
+        return tiles, extent  # type: ignore[return-value]
+    except (OSError, ValueError, KeyError) as exc:
+        LOGGER.warning("Basemap cache unreadable %s (%s); rebuilding", path.name, exc)
+        return None
+
+
+def save_basemap_cache(
+    crop: RadarCrop,
+    config: Config,
+    theme: Theme,
+    tiles: np.ndarray,
+    extent: tuple[float, float, float, float],
+) -> Path:
+    cache_dir = config.resolved_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = _basemap_cache_path(config, _basemap_cache_id(crop, config, theme))
+    np.savez_compressed(
+        path,
+        tiles=np.asarray(tiles, dtype=np.uint8),
+        extent=np.array(extent, dtype=np.float64),
+    )
+    LOGGER.info("Basemap disk cache wrote %s (%s bytes)", path.name, path.stat().st_size)
+    return path
+
+
+def crop_osm_mosaic(
+    img: np.ndarray,
+    extent: tuple[float, float, float, float],
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Trim extra OSM tile padding to the crop AABB before warping."""
+    min_x, max_x, min_y, max_y = extent
+    height, width = img.shape[:2]
+    if height < 2 or width < 2 or max_x == min_x or max_y == min_y:
+        return img, extent
+    col0 = int(np.floor((west - min_x) / (max_x - min_x) * width))
+    col1 = int(np.ceil((east - min_x) / (max_x - min_x) * width))
+    row0 = int(np.floor((max_y - north) / (max_y - min_y) * height))
+    row1 = int(np.ceil((max_y - south) / (max_y - min_y) * height))
+    col0, col1 = max(0, col0 - 1), min(width, col1 + 1)
+    row0, row1 = max(0, row0 - 1), min(height, row1 + 1)
+    if col1 - col0 < 2 or row1 - row0 < 2:
+        return img, extent
+    cropped = img[row0:row1, col0:col1]
+    new_min_x = min_x + col0 / width * (max_x - min_x)
+    new_max_x = min_x + col1 / width * (max_x - min_x)
+    new_max_y = max_y - row0 / height * (max_y - min_y)
+    new_min_y = max_y - row1 / height * (max_y - min_y)
+    return cropped, (new_min_x, new_max_x, new_min_y, new_max_y)
+
+
+def _warp_basemap_to_crop(
+    tiles: np.ndarray,
+    extent_3857: tuple[float, float, float, float],
+    crop: RadarCrop,
+    out_px: int,
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Reproject OSM onto a square covering the radar crop (not the full tile mosaic)."""
+    min_x, max_x, min_y, max_y = extent_3857
+    height, width, bands = tiles.shape
+    src_transform = transform_from_bounds(min_x, min_y, max_x, max_y, width, height)
+    west, south, east, north = _src_bounds(crop)
+    dst_transform = transform_from_bounds(west, south, east, north, out_px, out_px)
+    dst_crs = CRS.from_string(crop.crs)
+    dst = np.zeros((bands, out_px, out_px), dtype=np.uint8)
+    for band in range(bands):
+        reproject(
+            source=tiles[:, :, band],
+            destination=dst[band],
+            src_transform=src_transform,
+            src_crs="EPSG:3857",
+            dst_transform=dst_transform,
+            dst_crs=dst_crs,
+            resampling=Resampling.bilinear,
+        )
+    return np.transpose(dst, (1, 2, 0)), (west, east, south, north)
+
+
 def _basemap_in_radar_crs(crop: RadarCrop, config: Config, theme: Theme):
-    """Download OSM in Web Mercator, then warp onto the radar CRS (ETRS-TM35FIN)."""
+    """Download OSM, crop to the map box, warp onto the radar grid, optionally from disk."""
+    cached = load_basemap_cache(crop, config, theme)
+    if cached is not None:
+        return cached
     west, south, east, north = _mercator_aabb(crop)
+    zoom = _tile_zoom(config.box_km)
+    t_fetch = perf_counter()
     tiles, extent_3857 = cx.bounds2img(
         west,
         south,
         east,
         north,
         ll=False,
+        zoom=zoom,
         source=theme.basemap,
         use_cache=True,
         headers={"User-Agent": config.user_agent},
     )
-    tiles, extent = cx.warp_tiles(tiles, extent_3857, t_crs=crop.crs)
-    tiles = _restyle_basemap(tiles, theme)
-    return tiles, extent
+    LOGGER.info(
+        "OSM tiles theme=%s zoom=%s mosaic=%sx%s in %.1fs",
+        theme.name,
+        zoom,
+        tiles.shape[0],
+        tiles.shape[1],
+        perf_counter() - t_fetch,
+    )
+    cropped, extent_3857 = crop_osm_mosaic(tiles, extent_3857, west, south, east, north)
+    if cropped.shape != tiles.shape:
+        LOGGER.info(
+            "Cropped OSM mosaic %sx%s → %sx%s before warp",
+            tiles.shape[0],
+            tiles.shape[1],
+            cropped.shape[0],
+            cropped.shape[1],
+        )
+    out_px = _basemap_out_size(config)
+    t_warp = perf_counter()
+    warped, extent = _warp_basemap_to_crop(cropped, extent_3857, crop, out_px)
+    warped = _restyle_basemap(warped, theme)
+    LOGGER.info(
+        "Warped basemap theme=%s to %sx%s (%s) in %.1fs",
+        theme.name,
+        warped.shape[0],
+        warped.shape[1],
+        crop.crs,
+        perf_counter() - t_warp,
+    )
+    save_basemap_cache(crop, config, theme, warped, extent)
+    return warped, extent
+
+
+def get_basemap(crop: RadarCrop, config: Config, theme: Theme):
+    """Warped OSM covering the map crop, from disk cache when lat/lon/box match."""
+    return _basemap_in_radar_crs(crop, config, theme)
 
 
 def _restyle_basemap(img: np.ndarray, theme: Theme) -> np.ndarray:
@@ -184,6 +367,8 @@ def _draw_radar_figure(
     cached_basemap: tuple | None = None,
     flow: np.ndarray | None = None,
     arrow_sites: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    dpi: float | None = None,
+    basemap_interpolation: str = "lanczos",
 ):
     values = crop.dbzh if config.quantity == "dbzh" else crop.rr
     west, south, east, north = _src_bounds(crop)
@@ -195,7 +380,9 @@ def _draw_radar_figure(
     stats = crop_stats(crop)
 
     if cached_basemap is None:
+        t_map = perf_counter()
         cached_basemap = _basemap_in_radar_crs(crop, config, theme)
+        LOGGER.info("Prepared basemap theme=%s in %.1fs", theme.name, perf_counter() - t_map)
     tiles, tile_extent = cached_basemap
 
     overlay_cmap = plt.get_cmap(config.cmap_for(theme)).copy()
@@ -205,12 +392,18 @@ def _draw_radar_figure(
 
     fig, ax = plt.subplots(
         figsize=(config.figsize, config.figsize),
-        dpi=config.dpi,
+        dpi=dpi or config.dpi,
         facecolor=theme.face,
     )
     fig.subplots_adjust(left=0.04, right=0.88, top=0.88, bottom=0.06)
     ax.set_facecolor(theme.face)
-    ax.imshow(tiles, extent=tile_extent, interpolation="lanczos", origin="upper", zorder=1)
+    ax.imshow(
+        tiles,
+        extent=tile_extent,
+        interpolation=basemap_interpolation,
+        origin="upper",
+        zorder=1,
+    )
     ax.imshow(
         data,
         origin="upper",
@@ -353,15 +546,19 @@ def write_radar_gif(
     output: Path,
     *,
     flow: np.ndarray | None = None,
+    cached_basemap: tuple | None = None,
 ) -> Path:
     """Animate T=0 → T=+15 with interpolated advection (forward only)."""
     if not frames:
         raise ValueError("No GIF frames")
     output.parent.mkdir(parents=True, exist_ok=True)
     images: list[Image.Image] = []
-    cached = None
+    cached = cached_basemap
     sites = _arrow_sites(frames[0][1], flow, config) if flow is not None else None
-    for offset, crop in frames:
+    gif_dpi = config.gif_dpi if config.gif_dpi > 0 else config.dpi
+    t_gif = perf_counter()
+    for index, (offset, crop) in enumerate(frames):
+        t_frame = perf_counter()
         fig, cached = _draw_radar_figure(
             crop,
             config,
@@ -370,12 +567,22 @@ def write_radar_gif(
             cached_basemap=cached,
             flow=flow,
             arrow_sites=sites,
+            dpi=gif_dpi,
+            basemap_interpolation="bilinear",
         )
         buf = io.BytesIO()
         fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), edgecolor="none")
         plt.close(fig)
         buf.seek(0)
         images.append(Image.open(buf).convert("RGB"))
+        LOGGER.info(
+            "GIF frame %s/%s T=%g min matplotlib %.1fs",
+            index + 1,
+            len(frames),
+            offset,
+            perf_counter() - t_frame,
+        )
+    LOGGER.info("GIF matplotlib %s frames in %.1fs", len(frames), perf_counter() - t_gif)
     fps = config.gif_fps if config.gif_fps > 0 else 1000.0 / max(config.gif_duration_ms, 1)
     frame_ms = int(round(1000.0 / fps))
     hold_ms = int(round(frame_ms * max(1.0, config.gif_hold)))
@@ -386,6 +593,7 @@ def write_radar_gif(
     quantized = [
         frame.quantize(palette=palette, dither=Image.Dither.NONE) for frame in images
     ]
+    t_enc = perf_counter()
     quantized[0].save(
         output,
         save_all=True,
@@ -399,4 +607,5 @@ def write_radar_gif(
         image.close()
     for image in quantized:
         image.close()
+    LOGGER.info("GIF encode in %.1fs", perf_counter() - t_enc)
     return output

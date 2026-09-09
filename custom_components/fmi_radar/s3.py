@@ -220,8 +220,10 @@ def download_object(
     config: Config, key: str, timestamp: datetime, requested: datetime | None
 ) -> RadarObject:
     url = object_url(key)
+    t0 = time.perf_counter()
     response = _session(config).get(url, timeout=60)
     response.raise_for_status()
+    LOGGER.info("Downloaded full GeoTIFF %s (%s bytes) in %.1fs", key, len(response.content), time.perf_counter() - t0)
     return RadarObject(
         key=key,
         timestamp=timestamp,
@@ -262,7 +264,7 @@ def fetch_history(config: Config, t0: datetime) -> dict[int, RadarObject]:
             frames[rel] = obj
         else:
             LOGGER.warning("History slot T=%s min missing", rel)
-    LOGGER.debug("Fetched history frames %s", sorted(frames))
+    LOGGER.info("History HEAD complete offsets=%s", sorted(frames))
     return frames
 
 

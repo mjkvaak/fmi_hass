@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from time import perf_counter
 
 import numpy as np
 import rasterio
@@ -11,7 +12,10 @@ from rasterio.io import MemoryFile
 from rasterio.windows import Window, from_bounds
 
 from fmi_radar.config import Config
+from fmi_radar.log import get_logger
 from fmi_radar.s3 import RadarObject, download_object
+
+LOGGER = get_logger(__name__)
 
 # FMI GeoTIFF encoding: Z[dBZ] = 0.5 * pixel - 32
 DBZ_GAIN = 0.5
@@ -102,17 +106,28 @@ def _window_for(src, lat: float, lon: float, box_km: float):
 
 def crop_radar(obj: RadarObject, config: Config) -> RadarCrop:
     """Read only the local window (FMI composites are 256 px LZW tiles + HTTP Range)."""
+    t0 = perf_counter()
     try:
         with _open_raster(obj, config.user_agent) as src:
             window = _window_for(src, config.lat, config.lon, config.box_km)
-            return _decode_window(src, window, obj)
+            crop = _decode_window(src, window, obj)
     except Exception:
         if obj.payload:
             raise
+        LOGGER.warning("Windowed S3 read failed for %s; downloading full object", obj.key)
         full = download_object(config, obj.key, obj.timestamp, obj.requested)
         with _open_raster(full, config.user_agent) as src:
             window = _window_for(src, config.lat, config.lon, config.box_km)
-            return _decode_window(src, window, full)
+            crop = _decode_window(src, window, full)
+    LOGGER.info(
+        "Radar window %s box=%.1f km shape=%sx%s in %.1fs",
+        obj.key,
+        config.box_km,
+        crop.rr.shape[0],
+        crop.rr.shape[1],
+        perf_counter() - t0,
+    )
+    return crop
 
 
 def _box_slices(crop: RadarCrop, lat: float, lon: float, box_km: float):

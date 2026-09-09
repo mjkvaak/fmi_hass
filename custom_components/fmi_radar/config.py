@@ -80,6 +80,8 @@ class Config:
     when: datetime | None = None  # None = latest; else nearest 5-minute composite
     image_formats: tuple[str, ...] = ("png",)
     outdir: Path = field(default_factory=lambda: Path("output"))
+    # Warped OSM basemap (and similar) live here while lat/lon/box stay the same.
+    cache_dir: Path | None = None
     # Circular warning cell around lat/lon. Status is RAIN if any pixel in the disk rains.
     warn_radius_km: float = 2.0
     cmap: str | None = None
@@ -116,6 +118,8 @@ class Config:
     gif_hold: float = 2.5
     gif_step_min: float = 2.5
     gif_duration_ms: int = 800  # unused if gif_fps set; kept as fallback
+    # Animation can use a lower DPI than stills (matplotlib savefig dominates runtime).
+    gif_dpi: float = 100.0
     show_flow_arrows: bool = True
     # Max arrows = box_km² × this (default 1 per 100 km²). ≤ 0 disables arrows.
     flow_arrow_density: float = 0.01
@@ -133,6 +137,9 @@ class Config:
     def flow_box_km(self) -> float:
         """Square used for Farneback: map crop plus padding on every side."""
         return self.box_km + 2.0 * max(0.0, self.of_padding_km)
+
+    def resolved_cache_dir(self) -> Path:
+        return self.cache_dir if self.cache_dir is not None else self.outdir / "cache"
 
     def cmap_for(self, theme: Theme) -> str:
         if theme.name == "dark" and self.cmap_dark:
