@@ -4,7 +4,7 @@ HACS custom integration: crop FMI precipitation radar around a location, overlay
 
 Polling **starts when Home Assistant loads the integration** and **stops when HA shuts down**, or when you disable/remove the entry.
 
-Add it as a [HACS custom repository](https://www.hacs.xyz/docs/faq/custom_repositories/) (type **Integration**). Keep this GitHub repository **private**; do not make it public. HACS can still install from a custom repository URL.
+Add it as a [HACS custom repository](https://www.hacs.xyz/docs/faq/custom_repositories/) (type **Integration**). HACS expects the [integration layout](https://www.hacs.xyz/docs/publish/integration/) used here: `hacs.json` at the repo root and `custom_components/fmi_radar/`.
 
 ## Install with HACS
 
