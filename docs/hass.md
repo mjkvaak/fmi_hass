@@ -10,9 +10,9 @@ This repository is laid out as a HACS **Integration** ([structure](https://www.h
 4. **Add**, then download **FMI Precipitation Radar**.
 5. Restart Home Assistant.
 6. Settings → Devices & services → Add integration → **FMI Precipitation Radar**.
-7. Confirm **lat / lon** (defaults to the HA home location), **map box (km)**, **alert zone radius (km)**, and the other setup fields. Polling starts with HA and stops when HA stops or you disable the entry.
+7. Confirm **lat / lon** (defaults to the Home Assistant home location, otherwise Helsinki centre), **map box (km)**, **alert zone radius (km)**, and the other setup fields. Polling starts with HA and stops when HA stops or you disable the entry.
 
-HACS custom repositories generally need a **public** GitHub repository.
+Keep this GitHub repository **private**. Add it in HACS as a custom repository (type Integration); do not publish the repo.
 
 Lovelace still/GIF:
 
@@ -22,7 +22,7 @@ entity: camera.fmi_radar_map
 show_state: false
 ```
 
-Files also land under `/config/www/fmi_radar/<entry id prefix>/` (`output.png`, `radar.gif`).
+Files also land under `/config/www/fmi_radar/<entry id prefix>/` (`output.png`, `radar.gif`). Those images include the crop centre; serve `/local/` only on an authenticated Home Assistant instance. Do not commit `output/`.
 
 Live updates fail (entities become unavailable) if the FMI composite is **more than 15 minutes old**, because a wall-clock T=0…+15 nowcast is then impossible.
 
@@ -88,7 +88,7 @@ password_file /etc/mosquitto/passwd
 sudo systemctl restart mosquitto
 ```
 
-**Home Assistant OS:** Settings → Add-ons → Mosquitto broker. Point `FMI_RADAR_MQTT_HOST` at a hostname the sidecar can reach.
+**Home Assistant OS:** Settings → Add-ons → Mosquitto broker. Point `FMI_RADAR_MQTT_HOST` at a hostname the sidecar can reach. Use TLS (typically port 8883) if the broker is not on localhost.
 
 ### systemd timer (aligned with S3 publish time)
 

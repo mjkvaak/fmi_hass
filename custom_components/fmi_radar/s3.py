@@ -20,8 +20,6 @@ from fmi_radar.log import get_logger
 HELSINKI = ZoneInfo("Europe/Helsinki")
 LOGGER = get_logger(__name__)
 
-HELSINKI = ZoneInfo("Europe/Helsinki")
-
 
 @dataclass(frozen=True)
 class RadarObject:
