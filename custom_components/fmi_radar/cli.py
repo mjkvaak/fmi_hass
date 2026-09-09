@@ -25,6 +25,13 @@ def _cmap_name(value: str) -> str:
     return name
 
 
+def _arrow_density(value: str) -> float:
+    density = float(value)
+    if density < -1.0 or density > 1.0:
+        raise argparse.ArgumentTypeError("flow-arrow-density must be between -1 and 1")
+    return density
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fetch FMI precip radar, crop a local box, and render a map overlay."
@@ -129,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--flow-arrow-density",
-        type=float,
+        type=_arrow_density,
         default=0.01,
         help="Arrows per km² of --box-km (default: 0.01). Use 0 or a negative value to hide arrows.",
     )

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from fmi_radar.cli import _formats, build_parser, main
 from fmi_radar.config import Config, LIGHT, THEMES
 
@@ -11,10 +13,10 @@ def test_formats_both():
     assert _formats("png") == ("png",)
 
 
-def test_parser_disables_arrows_with_zero_density():
-    args = build_parser().parse_args(["--flow-arrow-density", "0", "--no-gif"])
-    assert args.flow_arrow_density == 0.0
-    assert args.gif is False
+def test_parser_rejects_extreme_arrow_density():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--flow-arrow-density", "50"])
 
 
 def test_parser_time_compact_utc():

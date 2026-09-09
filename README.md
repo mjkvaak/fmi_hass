@@ -4,9 +4,7 @@ HACS custom integration: crop FMI precipitation radar around a location, overlay
 
 Polling **starts when Home Assistant loads the integration** and **stops when HA shuts down**, or when you disable/remove the entry.
 
-Add it as a [HACS custom repository](https://www.hacs.xyz/docs/faq/custom_repositories/) (type **Integration**). HACS expects the [integration layout](https://www.hacs.xyz/docs/publish/integration/) used here: `hacs.json` at the repo root and `custom_components/fmi_radar/`.
-
-Typical HACS custom repositories need a **public** GitHub repo ([HACS general requirements](https://www.hacs.xyz/docs/publish/start/)).
+Add it as a [HACS custom repository](https://www.hacs.xyz/docs/faq/custom_repositories/) (type **Integration**). Keep this GitHub repository **private**; do not make it public. HACS can still install from a custom repository URL.
 
 ## Install with HACS
 
@@ -14,7 +12,7 @@ Typical HACS custom repositories need a **public** GitHub repo ([HACS general re
 2. Download **FMI Precipitation Radar**.
 3. **Restart Home Assistant** (required after adding a custom component). First start may take a while while HA installs `rasterio`, `opencv-python-headless`, and map libraries.
 4. Settings → Devices & services → **Add integration** → FMI Precipitation Radar.
-5. Set **latitude / longitude** (defaults to your Home Assistant location), **map box (km)**, **alert zone radius (km)**, optical-flow padding, theme, GIF, and update interval. Theme **hass** (the default) styles the GIF and stills from the backend-selected HA theme when that can be inferred (theme name or background color); if HA is on the built-in default theme, **sun.sun** is used as a stand-in because each browser’s Auto dark/light mode is not visible to the backend. Force **dark** or **light** if you want a fixed map.
+5. Set **latitude / longitude** (defaults to the Home Assistant home location, or Helsinki centre if that is unset), **map box (km)**, **alert zone radius (km)**, optical-flow padding, theme, GIF, and update interval. Theme **hass** (the default) styles the GIF and stills from the backend-selected HA theme when that can be inferred (theme name or background color); if HA is on the built-in default theme, **sun.sun** is used as a stand-in because each browser’s Auto dark/light mode is not visible to the backend. Force **dark** or **light** if you want a fixed map.
 
 Change those later under the integration’s **Configure** options; HA reloads the entry so polling picks up the new values.
 
@@ -30,7 +28,7 @@ Change those later under the integration’s **Configure** options; HA reloads t
 | `camera.*_map` | PNG still |
 | `camera.*_nowcast` | GIF T=0…+15 |
 
-Maps are also written to `/config/www/fmi_radar/<entry>/` so Lovelace can use `/local/fmi_radar/<entry>/output.png` or `radar.gif`.
+Maps are also written to `/config/www/fmi_radar/<entry>/` so Lovelace can use `/local/fmi_radar/<entry>/output.png` or `radar.gif`. Keep `output/` out of git; rendered maps include the crop centre.
 
 ```yaml
 type: picture-entity

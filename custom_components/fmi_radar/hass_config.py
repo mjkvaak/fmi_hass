@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fmi_radar.config import Config
+from fmi_radar.config import DEFAULT_LAT, DEFAULT_LON, Config
 from fmi_radar.const import (
     CONF_ALERT_ALPHA,
     CONF_BOX_KM,
@@ -34,6 +34,17 @@ CONF_LATITUDE = "latitude"
 CONF_LONGITUDE = "longitude"
 
 
+def default_setup_lat_lon(
+    hass_latitude: float | None, hass_longitude: float | None
+) -> tuple[float, float]:
+    """Prefer Home Assistant's home location; otherwise Helsinki centre."""
+    if hass_latitude is None or hass_longitude is None:
+        return DEFAULT_LAT, DEFAULT_LON
+    if hass_latitude == 0.0 and hass_longitude == 0.0:
+        return DEFAULT_LAT, DEFAULT_LON
+    return float(hass_latitude), float(hass_longitude)
+
+
 def merged_entry(data: dict, options: dict | None = None) -> dict:
     return {**data, **(options or {})}
 
@@ -59,8 +70,12 @@ def config_from_entry(
         alert_alpha=float(merged.get(CONF_ALERT_ALPHA, DEFAULT_ALERT_ALPHA)),
         write_gif=bool(merged.get(CONF_WRITE_GIF, DEFAULT_WRITE_GIF)),
         show_flow_arrows=bool(merged.get(CONF_SHOW_FLOW_ARROWS, DEFAULT_SHOW_FLOW_ARROWS)),
-        flow_arrow_density=float(
-            merged.get(CONF_FLOW_ARROW_DENSITY, DEFAULT_FLOW_ARROW_DENSITY)
+        flow_arrow_density=min(
+            1.0,
+            max(
+                -1.0,
+                float(merged.get(CONF_FLOW_ARROW_DENSITY, DEFAULT_FLOW_ARROW_DENSITY)),
+            ),
         ),
         timeout_sec=float(merged.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
         poll_seconds=float(merged.get(CONF_POLL_SECONDS, DEFAULT_POLL_SECONDS)),
