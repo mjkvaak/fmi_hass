@@ -120,6 +120,8 @@ class Config:
     # Max arrows = box_km² × this (default 1 per 100 km²). ≤ 0 disables arrows.
     flow_arrow_density: float = 0.01
     max_advect_min: float = 30.0
+    # Live runs fail if the composite is older than this (cannot nowcast T=0…+15).
+    max_product_age_min: float = 15.0
     timeout_sec: float = 240.0
     # FMI composites typically land several minutes after the product timestamp.
     publish_lag_min: float = 5.0

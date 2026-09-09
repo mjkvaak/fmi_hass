@@ -24,6 +24,17 @@ show_state: false
 
 Files also land under `/config/www/fmi_radar/<entry id prefix>/` (`output.png`, `radar.gif`).
 
+Live updates fail (entities become unavailable) if the FMI composite is **more than 15 minutes old**, because a wall-clock T=0…+15 nowcast is then impossible.
+
+Logging uses the standard Home Assistant logger (`fmi_radar`). Enable debug with:
+
+```yaml
+logger:
+  default: info
+  logs:
+    fmi_radar: debug
+```
+
 ## Optional: CLI sidecar + MQTT
 
 Use this only if you cannot run the heavy GIS stack inside Home Assistant. Same host as Mosquitto/HASS is simplest.

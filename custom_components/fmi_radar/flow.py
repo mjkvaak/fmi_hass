@@ -13,7 +13,10 @@ import cv2
 import numpy as np
 
 from fmi_radar.config import INTERVAL_MIN, Config
+from fmi_radar.log import get_logger
 from fmi_radar.process import RadarCrop
+
+LOGGER = get_logger(__name__)
 
 
 def _gray(crop: RadarCrop) -> np.ndarray:
@@ -52,7 +55,9 @@ def mean_step_flow(crops: dict[int, RadarCrop]) -> np.ndarray | None:
         flow = pair_flow(crops[older], crops[newer])
         flows.append(flow * (INTERVAL_MIN / dt))
     if not flows:
+        LOGGER.debug("No consecutive 5-minute history pairs for optical flow")
         return None
+    LOGGER.debug("Averaging %s optical-flow pair(s)", len(flows))
     return np.mean(np.stack(flows, axis=0), axis=0)
 
 

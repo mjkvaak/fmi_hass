@@ -42,7 +42,9 @@ show_state: false
 
 FMI GeoTIFF: `Z[dBZ] = 0.5 * pixel - 32`. Rain rate uses Marshall–Palmer `Z = 200 R^1.6`. Linear colour scale 0–8 mm/h. Radar © FMI (CC BY 4.0); map © OSM.
 
-Optical flow uses T=−15…0 on `box_km` plus `of_padding_km`, then advects up to 30 minutes. Live T=0 is aligned toward wall-clock now so S3 publish lag is absorbed. Historic CLI `--time` keeps T=0 at the requested composite.
+Optical flow uses T=−15…0 on `box_km` plus `of_padding_km`, then advects up to 30 minutes. Live T=0 is aligned toward wall-clock now so S3 publish lag is absorbed. If the FMI product is **older than 15 minutes**, the live run raises an error (HA entities go unavailable) because T=0…+15 cannot be nowcast. Historic CLI `--time` keeps T=0 at the requested composite and skips that check.
+
+Logs go to the `fmi_radar` logger (Home Assistant **Settings → System → Logs**, or `logger: logs: fmi_radar: debug` in `configuration.yaml`). The CLI prints the same messages to stderr.
 
 ## CLI (optional, same library)
 
