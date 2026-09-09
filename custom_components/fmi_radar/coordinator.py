@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from fmi_radar.config import THEMES
 from fmi_radar.const import DEFAULT_SCAN_INTERVAL, DOMAIN, CONF_SCAN_INTERVAL
+from fmi_radar.freshness import StaleRadarError
 from fmi_radar.hass_config import config_from_entry
 from fmi_radar.ha_theme import resolve_map_theme
 from fmi_radar.pipeline import RenderResult, render_latest
@@ -58,7 +59,7 @@ class FmiRadarCoordinator(DataUpdateCoordinator[RenderResult]):
 
     async def _async_update_data(self) -> RenderResult:
         map_theme = resolve_map_theme(self.hass, self.entry.data, dict(self.entry.options))
-        _LOGGER.debug("Rendering radar GIF/stills with %s theme", map_theme)
+        _LOGGER.info("Radar poll started (theme=%s)", map_theme)
         cfg = config_from_entry(
             self.entry.data, outdir=self.outdir, options=dict(self.entry.options)
         )
@@ -69,12 +70,22 @@ class FmiRadarCoordinator(DataUpdateCoordinator[RenderResult]):
                 timeout=timeout,
             )
         except TimeoutError as err:
+            _LOGGER.error("Radar fetch timed out after %.0fs", cfg.timeout_sec)
             raise UpdateFailed(f"Radar fetch timed out after {cfg.timeout_sec:.0f}s") from err
+        except StaleRadarError as err:
+            _LOGGER.error("%s", err)
+            raise UpdateFailed(str(err)) from err
         except Exception as err:
+            _LOGGER.exception("Radar update failed")
             raise UpdateFailed(str(err)) from err
 
         png_path = self.outdir / "output.png"
         gif_path = self.outdir / "radar.gif"
         self.png_bytes = png_path.read_bytes() if png_path.exists() else None
         self.gif_bytes = gif_path.read_bytes() if gif_path.exists() else None
+        _LOGGER.info(
+            "Radar poll finished status=%s mean_rr=%.2f",
+            result.alert.status,
+            result.alert.mean_rr_mmh,
+        )
         return result

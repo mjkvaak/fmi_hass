@@ -10,11 +10,15 @@ from datetime import datetime, timezone
 from fmi_radar.alert import RainAlert, observed_rain, will_rain_flag
 from fmi_radar.config import THEMES, Config, Theme
 from fmi_radar.flow import advect_crop, run_nowcast
+from fmi_radar.freshness import ensure_live_product_fresh
+from fmi_radar.log import get_logger
 from fmi_radar.mqtt import publish_result
 from fmi_radar.persist import save_crop
 from fmi_radar.plot import render_map, write_radar_gif
 from fmi_radar.process import RadarCrop, crop_radar, crop_stats, extract_box, extract_flow
 from fmi_radar.s3 import fetch_history, fetch_radar
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass
@@ -143,10 +147,21 @@ def render_latest(
     config = config or Config()
     themes = themes or [THEMES["dark"]]
     config.outdir.mkdir(parents=True, exist_ok=True)
+    LOGGER.info(
+        "Starting radar update lat=%.4f lon=%.4f box=%.1f km alert=%.1f km historic=%s",
+        config.lat,
+        config.lon,
+        config.box_km,
+        config.warn_radius_km,
+        config.when is not None,
+    )
 
     t0_obj = fetch_radar(config)
+    LOGGER.info("Using FMI object %s (product %s)", t0_obj.key, t0_obj.timestamp.isoformat())
+    ensure_live_product_fresh(t0_obj.timestamp, config)
     history_objs = fetch_history(config, t0_obj.timestamp)
     history_objs.setdefault(0, t0_obj)
+    LOGGER.debug("History offsets present: %s", sorted(history_objs))
 
     flow_km = config.flow_box_km
     flow_config = replace(config, box_km=flow_km, of_padding_km=0.0)
@@ -155,9 +170,17 @@ def render_latest(
     }
     t0_flow = history_crops[0]
     nowcast = run_nowcast(history_crops, config.nowcast_lead_min)
+    if not nowcast.flow_available:
+        LOGGER.warning("Optical flow unavailable; will_rain flags will be unknown")
     align_min = _align_lead_min(t0_flow.timestamp, config) if nowcast.flow is not None else 0.0
     anim_horizon = min(float(max(config.nowcast_lead_min)), config.max_advect_min - align_min)
     anim_horizon = max(0.0, anim_horizon)
+    LOGGER.info(
+        "Nowcast flow=%s align=%.1f min anim_horizon=%.1f min",
+        nowcast.flow_available,
+        align_min,
+        anim_horizon,
+    )
 
     if align_min > 0 and nowcast.flow is not None:
         aligned_flow = advect_crop(t0_flow, nowcast.flow, align_min)
@@ -265,4 +288,10 @@ def render_latest(
         metadata=metadata,
     )
     publish_result(config, result)
+    LOGGER.info(
+        "Update done status=%s mean_rr=%.2f mm/h gif=%s",
+        alert.status,
+        alert.mean_rr_mmh,
+        gif_path,
+    )
     return result
