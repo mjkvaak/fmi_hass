@@ -10,7 +10,7 @@ from rasterio.transform import from_origin
 from fmi_radar.config import Config
 from fmi_radar.process import RadarCrop
 
-LAT = 60.1719
+LAT = 60.1719  # Helsinki centre (public example)
 LON = 24.9414
 CRS = "EPSG:3067"
 RES_M = 250.0

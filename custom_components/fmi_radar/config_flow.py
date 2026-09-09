@@ -11,6 +11,8 @@ from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 
+from fmi_radar.hass_config import default_setup_lat_lon
+
 from .const import (
     CONF_BOX_KM,
     CONF_FLOW_ARROW_DENSITY,
@@ -36,6 +38,7 @@ from .const import (
 
 def _schema(hass: HomeAssistant, defaults: dict[str, Any] | None = None) -> vol.Schema:
     d = defaults or {}
+    lat, lon = default_setup_lat_lon(hass.config.latitude, hass.config.longitude)
     return vol.Schema(
         {
             vol.Optional(
@@ -44,11 +47,11 @@ def _schema(hass: HomeAssistant, defaults: dict[str, Any] | None = None) -> vol.
             ): cv.string,
             vol.Required(
                 CONF_LATITUDE,
-                default=d.get(CONF_LATITUDE, hass.config.latitude),
+                default=d.get(CONF_LATITUDE, lat),
             ): cv.latitude,
             vol.Required(
                 CONF_LONGITUDE,
-                default=d.get(CONF_LONGITUDE, hass.config.longitude),
+                default=d.get(CONF_LONGITUDE, lon),
             ): cv.longitude,
             vol.Required(
                 CONF_BOX_KM,
@@ -77,7 +80,7 @@ def _schema(hass: HomeAssistant, defaults: dict[str, Any] | None = None) -> vol.
             vol.Optional(
                 CONF_FLOW_ARROW_DENSITY,
                 default=d.get(CONF_FLOW_ARROW_DENSITY, DEFAULT_FLOW_ARROW_DENSITY),
-            ): vol.Coerce(float),
+            ): vol.All(vol.Coerce(float), vol.Range(min=-1.0, max=1.0)),
             vol.Optional(
                 CONF_SCAN_INTERVAL,
                 default=d.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),

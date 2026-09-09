@@ -7,7 +7,7 @@ from pathlib import Path
 
 import xyzservices.providers as xyz
 
-# Neutral public example (Helsinki railway station). Override with --lat/--lon
+# Neutral public example: Helsinki centre. Override with --lat/--lon
 # or FMI_RADAR_LAT / FMI_RADAR_LON — do not commit a home coordinate.
 DEFAULT_LAT = float(os.environ.get("FMI_RADAR_LAT", "60.1719"))
 DEFAULT_LON = float(os.environ.get("FMI_RADAR_LON", "24.9414"))
