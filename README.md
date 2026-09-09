@@ -2,6 +2,8 @@
 
 HACS custom integration: crop FMI precipitation radar around a location, overlay rain on a map, and expose **DRY/RAIN**, rain rate, 5/10/15-minute nowcasts, and map cameras inside Home Assistant.
 
+![Example nowcast GIF](docs/demo/radar.gif)
+
 Uses the FMI **Finnish** radar composite ([open GeoTIFF](https://en.ilmatieteenlaitos.fi/radar-data-on-aws-s3)). The grid covers Finland and neighbouring parts of Estonia, Sweden, and Norway (for example Tallinn, Stockholm, and Tromsø). It does not cover all of Sweden or Norway (Oslo and Gothenburg are outside), and it is not the separate NORDRAD Nordic animation. Setup rejects coordinates outside that grid.
 
 Polling **starts when Home Assistant loads the integration** and **stops when HA shuts down**, or when you disable/remove the entry.
@@ -11,10 +13,10 @@ Add it as a [HACS custom repository](https://www.hacs.xyz/docs/faq/custom_reposi
 ## Install with HACS
 
 1. HACS → ⋮ → **Custom repositories** → URL `https://github.com/mjkvaak/fmi_hass` → type **Integration** → **Add** ([steps](https://www.hacs.xyz/docs/faq/custom_repositories/)).
-2. Download **FMI Precipitation Radar**.
+2. Download **Precipitation radar**.
 3. **Restart Home Assistant** (required after adding a custom component). First start installs `matplotlib`, `pyproj`, and `xyzservices` only — not GDAL/`rasterio`, which cannot be built inside Home Assistant Container (Alpine).
 4. Settings → Devices & services → **Add integration** → FMI Precipitation Radar.
-5. Set **latitude / longitude** (defaults to the Home Assistant home location if that is inside the composite, otherwise Helsinki centre), **map box (km)**, **alert zone radius (km)**, optical-flow padding, theme, GIF, and update interval. Theme **hass** (the default) styles the GIF and stills from the backend-selected HA theme when that can be inferred (theme name or background color); if HA is on the built-in default theme, **sun.sun** is used as a stand-in because each browser’s Auto dark/light mode is not visible to the backend. Force **dark** or **light** if you want a fixed map.
+5. Set **latitude / longitude** (defaults to the Home Assistant home location if that is inside the composite, otherwise Helsinki centre), **map box** (keep it small to limit CPU and memory; default 40 km), **alert zone** (the rain/dry disk, not the full map), optical-flow padding, theme, and update interval (1–30 minutes, default 5). Theme **hass** (the default) styles the GIF and stills from the backend-selected HA theme when that can be inferred (theme name or background color); if HA is on the built-in default theme, **sun.sun** is used as a stand-in because each browser’s Auto dark/light mode is not visible to the backend. Force **dark** or **light** if you want a fixed map.
 
 Change those later under the integration’s **Configure** options; HA reloads the entry so polling picks up the new values.
 
@@ -46,7 +48,7 @@ show_state: false
 
 FMI GeoTIFF: `Z[dBZ] = 0.5 * pixel - 32`. Rain rate uses Marshall–Palmer `Z = 200 R^1.6`. Linear colour scale 0–8 mm/h.
 
-Optical flow uses T=−15…0 on `box_km` plus `of_padding_km`, then advects up to 30 minutes. Live T=0 is aligned toward wall-clock now so S3 publish lag is absorbed. If the FMI product is **older than 15 minutes**, the live run raises an error (HA entities go unavailable) because T=0…+15 cannot be nowcast. Historic CLI `--time` keeps T=0 at the requested composite and skips that check.
+Optical flow uses T=−15…0 on `box_km` plus `of_padding_km` on **each side** of the map (so rain can be tracked as it moves in), then advects up to 30 minutes. Live T=0 is aligned toward wall-clock now so S3 publish lag is absorbed. If the FMI product is **older than 15 minutes**, the live run raises an error (HA entities go unavailable) because T=0…+15 cannot be nowcast. Historic CLI `--time` keeps T=0 at the requested composite and skips that check.
 
 Logs go to the `fmi_radar` logger (Home Assistant **Settings → System → Logs**, or `logger: logs: fmi_radar: debug` in `configuration.yaml`). The CLI prints the same messages to stderr.
 

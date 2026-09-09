@@ -19,13 +19,13 @@ CONF_TIMEOUT: Final = "timeout"
 CONF_ALERT_ALPHA: Final = "alert_alpha"
 CONF_POLL_SECONDS: Final = "poll_seconds"
 
-DEFAULT_BOX_KM: Final = 10.0
+DEFAULT_NAME: Final = "Precipitation radar"
+DEFAULT_BOX_KM: Final = 40.0
 DEFAULT_WARN_RADIUS_KM: Final = 2.0
 DEFAULT_OF_PADDING_KM: Final = 20.0
 DEFAULT_THEME: Final = "hass"
 THEME_HASS: Final = "hass"
 DEFAULT_WRITE_GIF: Final = True
-DEFAULT_SHOW_FLOW_ARROWS: Final = True
 DEFAULT_FLOW_ARROW_DENSITY: Final = 0.01
 DEFAULT_SCAN_INTERVAL: Final = 5
 DEFAULT_TIMEOUT: Final = 240.0

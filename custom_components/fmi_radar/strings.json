@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "FMI precipitation radar",
+        "title": "Precipitation radar",
         "description": "Uses the FMI Finnish radar composite (Finland and neighbouring parts of Estonia, Sweden, and Norway). Home Assistant will start polling when this integration is added, and stop when it is disabled or HA shuts down.",
         "data": {
           "name": "Name",
@@ -12,11 +12,17 @@
           "warn_radius_km": "Alert zone radius (km)",
           "of_padding_km": "Optical-flow padding (km)",
           "theme": "Map theme (hass follows Home Assistant dark/light)",
-          "write_gif": "Write nowcast GIF",
-          "show_flow_arrows": "Show flow arrows",
           "flow_arrow_density": "Flow arrow density (per km², 0 disables)",
           "scan_interval": "Update interval (minutes)",
           "timeout": "Fetch timeout (seconds)"
+        },
+        "data_description": {
+          "box_km": "Side length of the square map. Keep this small: larger boxes use more CPU, memory, and tile downloads.",
+          "warn_radius_km": "Radius of the rain/dry disk around the location. Status and rain sensors use this area, not the full map.",
+          "of_padding_km": "Extra kilometres on each side of the map so rain can be tracked as it moves in. See the README for optical-flow details.",
+          "flow_arrow_density": "How many motion arrows to draw. Set to 0 to hide them.",
+          "scan_interval": "How often to fetch a new composite (1–30). FMI products update every 5 minutes.",
+          "timeout": "Seconds allowed for download, nowcast, and map render. Increase if polls time out on a slow host."
         }
       }
     },
@@ -30,7 +36,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "FMI radar options",
+        "title": "Precipitation radar options",
         "description": "Change location, crop, and alert zone. The map must fall inside the FMI radar composite. Polling restarts after you save.",
         "data": {
           "name": "Name",
@@ -40,11 +46,17 @@
           "warn_radius_km": "Alert zone radius (km)",
           "of_padding_km": "Optical-flow padding (km)",
           "theme": "Map theme (hass follows Home Assistant dark/light)",
-          "write_gif": "Write nowcast GIF",
-          "show_flow_arrows": "Show flow arrows",
           "flow_arrow_density": "Flow arrow density (per km², 0 disables)",
           "scan_interval": "Update interval (minutes)",
           "timeout": "Fetch timeout (seconds)"
+        },
+        "data_description": {
+          "box_km": "Side length of the square map. Keep this small: larger boxes use more CPU, memory, and tile downloads.",
+          "warn_radius_km": "Radius of the rain/dry disk around the location. Status and rain sensors use this area, not the full map.",
+          "of_padding_km": "Extra kilometres on each side of the map so rain can be tracked as it moves in. See the README for optical-flow details.",
+          "flow_arrow_density": "How many motion arrows to draw. Set to 0 to hide them.",
+          "scan_interval": "How often to fetch a new composite (1–30). FMI products update every 5 minutes.",
+          "timeout": "Seconds allowed for download, nowcast, and map render. Increase if polls time out on a slow host."
         }
       }
     },

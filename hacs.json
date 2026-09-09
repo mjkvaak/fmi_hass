@@ -1,5 +1,5 @@
 {
-  "name": "FMI Precipitation Radar Nowcast",
+  "name": "Precipitation radar",
   "homeassistant": "2024.1.0",
   "render_readme": true,
   "country": ["FI", "EE", "SE", "NO"]

@@ -14,21 +14,17 @@ from .const import (
     CONF_FLOW_ARROW_DENSITY,
     CONF_OF_PADDING_KM,
     CONF_POLL_SECONDS,
-    CONF_SHOW_FLOW_ARROWS,
     CONF_THEME,
     CONF_TIMEOUT,
     CONF_WARN_RADIUS_KM,
-    CONF_WRITE_GIF,
     DEFAULT_ALERT_ALPHA,
     DEFAULT_BOX_KM,
     DEFAULT_FLOW_ARROW_DENSITY,
     DEFAULT_OF_PADDING_KM,
     DEFAULT_POLL_SECONDS,
-    DEFAULT_SHOW_FLOW_ARROWS,
     DEFAULT_THEME,
     DEFAULT_TIMEOUT,
     DEFAULT_WARN_RADIUS_KM,
-    DEFAULT_WRITE_GIF,
     THEME_HASS,
 )
 
@@ -86,6 +82,13 @@ def config_from_entry(
 ) -> Config:
     """Build a library Config from a config entry (data + options)."""
     merged = merged_entry(data, options)
+    density = min(
+        1.0,
+        max(
+            0.0,
+            float(merged.get(CONF_FLOW_ARROW_DENSITY, DEFAULT_FLOW_ARROW_DENSITY)),
+        ),
+    )
     return Config(
         lat=float(merged[CONF_LATITUDE]),
         lon=float(merged[CONF_LONGITUDE]),
@@ -97,15 +100,9 @@ def config_from_entry(
         image_formats=("png",),
         cmap=merged.get(CONF_CMAP) or None,
         alert_alpha=float(merged.get(CONF_ALERT_ALPHA, DEFAULT_ALERT_ALPHA)),
-        write_gif=bool(merged.get(CONF_WRITE_GIF, DEFAULT_WRITE_GIF)),
-        show_flow_arrows=bool(merged.get(CONF_SHOW_FLOW_ARROWS, DEFAULT_SHOW_FLOW_ARROWS)),
-        flow_arrow_density=min(
-            1.0,
-            max(
-                -1.0,
-                float(merged.get(CONF_FLOW_ARROW_DENSITY, DEFAULT_FLOW_ARROW_DENSITY)),
-            ),
-        ),
+        write_gif=True,
+        show_flow_arrows=density > 0,
+        flow_arrow_density=density,
         timeout_sec=float(merged.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
         poll_seconds=float(merged.get(CONF_POLL_SECONDS, DEFAULT_POLL_SECONDS)),
         mqtt_host=None,

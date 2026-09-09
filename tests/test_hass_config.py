@@ -36,11 +36,18 @@ def test_config_from_entry_maps_setup_fields(tmp_path: Path):
     assert cfg.warn_radius_km == 3
     assert cfg.of_padding_km == 15
     assert cfg.flow_box_km == 12 + 2 * 15
-    assert cfg.write_gif is False
+    assert cfg.write_gif is True
     assert cfg.show_flow_arrows is False
     assert cfg.flow_arrow_density == 0
     assert cfg.mqtt_host is None
     assert cfg.outdir == tmp_path
+    always_gif = config_from_entry(
+        {CONF_LATITUDE: DEFAULT_LAT, CONF_LONGITUDE: DEFAULT_LON, "flow_arrow_density": 0.01},
+        outdir=tmp_path,
+    )
+    assert always_gif.box_km == 40.0
+    assert always_gif.write_gif is True
+    assert always_gif.show_flow_arrows is True
 
 
 def test_options_override_data(tmp_path: Path):

@@ -41,7 +41,7 @@ class FmiRadarCoordinator(DataUpdateCoordinator[RenderResult]):
         self.gif_bytes: bytes | None = None
         slug = entry.entry_id[:8]
         self.outdir = Path(hass.config.path("www", "fmi_radar", slug))
-        title = entry.data.get(CONF_NAME) or entry.title or "FMI Radar"
+        title = entry.data.get(CONF_NAME) or entry.title or "Precipitation radar"
         self.device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=title,
