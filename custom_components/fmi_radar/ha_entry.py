@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import FmiRadarCoordinator
 
+_LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    _LOGGER.info("Setting up FMI radar entry %s (%s)", entry.entry_id, entry.title)
     coordinator = FmiRadarCoordinator(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -29,6 +34,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator: FmiRadarCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         if hasattr(coordinator, "async_shutdown"):
             await coordinator.async_shutdown()
+        _LOGGER.info("Unloaded FMI radar entry %s", entry.entry_id)
     return unload_ok
 
 

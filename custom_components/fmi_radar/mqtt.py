@@ -9,6 +9,7 @@ import json
 from typing import TYPE_CHECKING
 
 from fmi_radar.alert import STATUS_UNAVAILABLE
+from fmi_radar.log import get_logger
 
 if TYPE_CHECKING:
     from fmi_radar.alert import RainAlert
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 
 HEALTH_OK = "ok"
 HEALTH_UNAVAILABLE = "unavailable"
+LOGGER = get_logger(__name__)
 
 
 def _client(config: "Config"):
@@ -79,6 +81,7 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
     client = _client(config)
     try:
         _publish_map(client, prefix, messages)
+        LOGGER.info("Published MQTT state to %s/*", prefix)
     finally:
         client.loop_stop()
         client.disconnect()
@@ -86,6 +89,7 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
 
 def report_unavailable(config: "Config", error: str) -> None:
     """Mark HASS entities unavailable after a fetch/render failure."""
+    LOGGER.warning("Marking output unavailable: %s", error[:200])
     config.outdir.mkdir(parents=True, exist_ok=True)
     (config.outdir / "status.txt").write_text(STATUS_UNAVAILABLE + "\n")
     for lead in config.nowcast_lead_min:
@@ -114,4 +118,5 @@ def report_unavailable(config: "Config", error: str) -> None:
             client.loop_stop()
             client.disconnect()
     except Exception:
+        LOGGER.exception("Failed to publish MQTT unavailable state")
         return
