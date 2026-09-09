@@ -1,12 +1,32 @@
 # Using this with Home Assistant
 
-Recommended path: **this script on a timer + MQTT + files on disk**. That does not need HACS or a public GitHub repo.
+## Recommended: HACS custom integration
 
-A later HACS custom integration would wrap the same `render_latest()` call inside Home Assistant. The HACS default store and most custom-repo installs expect a **public** GitHub repository. Keep this project private until you are ready to publish.
+This repository is laid out as a HACS **Integration** ([structure](https://www.hacs.xyz/docs/publish/integration/), [custom repositories](https://www.hacs.xyz/docs/faq/custom_repositories/)).
 
-## 1. Install on the machine that will poll FMI
+1. In HACS, open the ⋮ menu → **Custom repositories**.
+2. URL: `https://github.com/mjkvaak/fmi_hass`
+3. Type: **Integration**
+4. **Add**, then download **FMI Precipitation Radar**.
+5. Restart Home Assistant.
+6. Settings → Devices & services → Add integration → **FMI Precipitation Radar**.
+7. Confirm **lat / lon** (defaults to the HA home location), **map box (km)**, **alert zone radius (km)**, and the other setup fields. Polling starts with HA and stops when HA stops or you disable the entry.
 
-Same host as Mosquitto/HASS is simplest.
+HACS custom repositories generally need a **public** GitHub repository.
+
+Lovelace still/GIF:
+
+```yaml
+type: picture-entity
+entity: camera.fmi_radar_map
+show_state: false
+```
+
+Files also land under `/config/www/fmi_radar/<entry id prefix>/` (`output.png`, `radar.gif`).
+
+## Optional: CLI sidecar + MQTT
+
+Use this only if you cannot run the heavy GIS stack inside Home Assistant. Same host as Mosquitto/HASS is simplest.
 
 ```bash
 sudo useradd --system --home /opt/fmi_radar --shell /usr/sbin/nologin fmiradar || true
@@ -15,7 +35,7 @@ sudo python3 -m venv /opt/fmi_radar/.venv
 sudo /opt/fmi_radar/.venv/bin/pip install -r /opt/fmi_radar/requirements.txt
 ```
 
-Copy the `fmi_radar` package into `/opt/fmi_radar/`. Create `/etc/fmi-radar.env` (mode `0640`, not in git):
+Clone this repo and `pip install -e .` (or copy `custom_components/fmi_radar` onto `PYTHONPATH`). Create `/etc/fmi-radar.env` (mode `0640`, not in git):
 
 ```bash
 FMI_RADAR_LAT=YOUR_LAT
@@ -27,13 +47,9 @@ FMI_RADAR_MQTT_PASSWORD=change-me
 FMI_RADAR_MQTT_PREFIX=fmi_radar
 ```
 
-If Home Assistant is in Docker/HAOS, mount a shared folder (example: `/config/www/fmi_radar`) as `--outdir` so Lovelace can serve `/local/fmi_radar/output.png`.
+### MQTT broker (Mosquitto)
 
-## 2. MQTT broker (Mosquitto)
-
-The sidecar publishes retained messages. Install a broker if you do not already have one (Home Assistant OS / Supervised usually already runs the Mosquitto add-on).
-
-**Debian/Ubuntu (same host as the script):**
+**Debian/Ubuntu:**
 
 ```bash
 sudo apt update
@@ -59,18 +75,13 @@ password_file /etc/mosquitto/passwd
 
 ```bash
 sudo systemctl restart mosquitto
-mosquitto_sub -h 127.0.0.1 -u fmi_radar -P 'your-password' -t 'fmi_radar/#' -v
 ```
 
-**Home Assistant OS:** Settings → Add-ons → Mosquitto broker → Install → Start. Create a user under Settings → People → **MQTT** user (or the add-on local users). Point `FMI_RADAR_MQTT_HOST` at the broker hostname the sidecar can reach (`core-mosquitto` on HAOS, or the HA host IP from a VM).
+**Home Assistant OS:** Settings → Add-ons → Mosquitto broker. Point `FMI_RADAR_MQTT_HOST` at a hostname the sidecar can reach.
 
-Then in Home Assistant: Settings → Devices & services → **MQTT** → configure the same broker.
+### systemd timer (aligned with S3 publish time)
 
-## 3. systemd timer (aligned with S3 publish time)
-
-FMI 5-minute GeoTIFFs usually land **about 4–6 minutes after** the product timestamp (at 11:14 UTC the 11:10 slot was still missing; 11:05 was latest). A timer on `:00,:05,:10` often runs before the new file exists, so you keep the previous slot and T=+15 is only ~5 minutes of real lead.
-
-Fire **one minute after each 5-minute mark** (`:01,:06,:11,…`) — about 6 minutes after valid time, when the object is usually present. The script also skips a slot younger than `publish_lag_min` (default 5) and waits up to `--poll-seconds` (default 60) for it.
+FMI 5-minute GeoTIFFs usually land **about 4–6 minutes after** the product timestamp. Fire **one minute after each 5-minute mark**.
 
 `/etc/systemd/system/fmi-radar.service`:
 
@@ -86,8 +97,6 @@ EnvironmentFile=/etc/fmi-radar.env
 WorkingDirectory=/opt/fmi_radar
 ExecStart=/opt/fmi_radar/.venv/bin/python -m fmi_radar --theme dark --format both --outdir /var/lib/fmi_radar
 ```
-
-That writes `output.png`, `output.svg`, and `radar.gif`. Use `--no-gif` only if you want stills.
 
 `/etc/systemd/system/fmi-radar.timer`:
 
@@ -110,11 +119,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now fmi-radar.timer
 ```
 
-## 4. MQTT entities
-
-Broker: Settings → Devices & services → MQTT (already used by most HASS installs).
-
-`configuration.yaml`:
+### MQTT entities (sidecar only)
 
 ```yaml
 mqtt:
@@ -134,81 +139,4 @@ mqtt:
       unit_of_measurement: mm/h
       device_class: precipitation_intensity
       state_class: measurement
-      icon: mdi:weather-pouring
-    - name: FMI radar max rain rate
-      state_topic: fmi_radar/max_rr
-      unit_of_measurement: mm/h
-      device_class: precipitation_intensity
-      state_class: measurement
-    - name: FMI radar timestamp
-      state_topic: fmi_radar/timestamp
-    - name: FMI radar rain in 5 minutes
-      state_topic: fmi_radar/will_rain_in_5_minutes
-    - name: FMI radar rain in 10 minutes
-      state_topic: fmi_radar/will_rain_in_10_minutes
-    - name: FMI radar rain in 15 minutes
-      state_topic: fmi_radar/will_rain_in_15_minutes
-    - name: FMI radar JSON
-      state_topic: fmi_radar/state
-      value_template: "{{ value_json.status }}"
-      json_attributes_topic: fmi_radar/state
 ```
-
-Retained messages mean HASS picks up the last RAIN/DRY after a restart.
-
-If you cannot use MQTT, `command_line` sensors can `cat` `status.txt` and `mean_rr.txt` from a path listed in `homeassistant.allowlist_external_dirs`.
-
-## 5. Map image on a dashboard
-
-Each run writes a still (`output.png`) and an animation (`radar.gif`). Use whichever card you prefer; both files update every 5 minutes.
-
-PNG is the reliable Lovelace **camera** format. GIF plays in a **picture** card in the browser. SVG is written as `output.svg` for browsers or a Webpage card.
-
-If `--outdir` is `/config/www/fmi_radar`:
-
-```yaml
-camera:
-  - platform: local_file
-    name: FMI radar
-    file_path: /config/www/fmi_radar/output.png
-
-# Lovelace — still
-type: picture-entity
-entity: camera.fmi_radar
-show_state: false
-
-# Lovelace — T=0 … T=+15 nowcast animation
-type: picture
-image: /local/fmi_radar/radar.gif
-```
-
-Or the still without a camera:
-
-```yaml
-type: picture
-image: /local/fmi_radar/output.png
-```
-
-Core `local_file` does not refresh SVG well and is a poor fit for GIF; prefer `output.png` for the camera entity and `radar.gif` on a picture card.
-
-## 6. What HASS receives (minimum vs extra)
-
-| Need | Source |
-| --- | --- |
-| DRY / RAIN / unavailable | MQTT `fmi_radar/status` or `status.txt` |
-| Sidecar health | MQTT `fmi_radar/health` (`ok` / `unavailable`) |
-| Mean rain rate in 2 km disk | MQTT `fmi_radar/mean_rr` or `mean_rr.txt` |
-| Rain in 5 / 10 / 15 minutes | MQTT `fmi_radar/will_rain_in_X_minutes` (`true`/`false`/`unknown`) |
-| Latest still | `output.png` (and `output.svg`); title is radar product time |
-| Past + nowcast animation | `radar.gif` (T=0…+15, forward) |
-| Max rate, wet pixel count, timestamp, nowcast | MQTT `fmi_radar/state` JSON / `radar.json` |
-
-## 7. HACS later
-
-When you want a first-class integration:
-
-1. Make a **public** GitHub repo (HACS custom repositories generally cannot stay private).
-2. Add `custom_components/fmi_radar/` with `manifest.json`, a sensor that calls `render_latest()`, and `hacs.json`.
-3. Users would still need network to FMI S3; MQTT would become optional.
-
-Until then, the timer + MQTT path above is the integration.

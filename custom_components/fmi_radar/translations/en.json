@@ -1,0 +1,65 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "FMI precipitation radar",
+        "description": "Home Assistant will start polling FMI when this integration is added, and stop when it is disabled or HA shuts down.",
+        "data": {
+          "name": "Name",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "box_km": "Map box (km)",
+          "warn_radius_km": "Alert zone radius (km)",
+          "of_padding_km": "Optical-flow padding (km)",
+          "theme": "Map theme (hass follows Home Assistant dark/light)",
+          "write_gif": "Write nowcast GIF",
+          "show_flow_arrows": "Show flow arrows",
+          "flow_arrow_density": "Flow arrow density (per km², 0 disables)",
+          "scan_interval": "Update interval (minutes)",
+          "timeout": "Fetch timeout (seconds)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This location is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "FMI radar options",
+        "description": "Change location, crop, and alert zone. Polling restarts after you save.",
+        "data": {
+          "name": "Name",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "box_km": "Map box (km)",
+          "warn_radius_km": "Alert zone radius (km)",
+          "of_padding_km": "Optical-flow padding (km)",
+          "theme": "Map theme (hass follows Home Assistant dark/light)",
+          "write_gif": "Write nowcast GIF",
+          "show_flow_arrows": "Show flow arrows",
+          "flow_arrow_density": "Flow arrow density (per km², 0 disables)",
+          "scan_interval": "Update interval (minutes)",
+          "timeout": "Fetch timeout (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": { "name": "Status" },
+      "mean_rr": { "name": "Mean rain rate" },
+      "max_rr": { "name": "Max rain rate" },
+      "timestamp": { "name": "Radar time" }
+    },
+    "binary_sensor": {
+      "raining": { "name": "Raining" },
+      "will_rain": { "name": "Rain in {minutes} minutes" }
+    },
+    "camera": {
+      "map": { "name": "Map" },
+      "nowcast": { "name": "Nowcast" }
+    }
+  }
+}
