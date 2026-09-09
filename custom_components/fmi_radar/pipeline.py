@@ -43,7 +43,7 @@ class RenderResult:
     crop: RadarCrop
     alert: RainAlert
     nowcast_alerts: dict[int, RainAlert]
-    will_rain: dict[int, str]
+    will_rain: dict[int, bool | None]
     images: dict[str, Path]
     gif_path: Path | None
     metadata_path: Path
@@ -90,7 +90,7 @@ def _metadata(
     status_path: Path,
     stable: dict[str, str],
     nowcast_alerts: dict[int, RainAlert],
-    will_rain: dict[int, str],
+    will_rain: dict[int, bool | None],
     history_offsets: list[int],
     flow_available: bool,
     gif_path: Path | None,
@@ -226,7 +226,7 @@ def render_latest(
 
     alert = observed_rain(aligned_flow, config)
     nowcast_alerts: dict[int, RainAlert] = {}
-    will_rain: dict[int, str] = {}
+    will_rain: dict[int, bool | None] = {}
     for lead in config.nowcast_lead_min:
         product_lead = align_min + lead
         if (
@@ -240,7 +240,9 @@ def render_latest(
                 predicted, lead_minutes=lead, method="optical_flow"
             )
         will_rain[lead] = will_rain_flag(nowcast_alerts.get(lead))
-        (config.outdir / f"{_will_rain_key(lead)}.txt").write_text(will_rain[lead] + "\n")
+        (config.outdir / f"{_will_rain_key(lead)}.txt").write_text(
+            json.dumps(will_rain[lead]) + "\n"
+        )
     steps.info("Alerts and will_rain flags written")
 
     array_path, _prev = save_crop(display, config, config.outdir)

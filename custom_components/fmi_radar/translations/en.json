@@ -69,14 +69,11 @@
       "status": { "name": "Status" },
       "mean_rr": { "name": "Mean rain rate" },
       "max_rr": { "name": "Max rain rate" },
-      "timestamp": { "name": "Radar time" }
-    },
-    "binary_sensor": {
+      "timestamp": { "name": "Radar time" },
       "raining": { "name": "Raining" },
       "will_rain": { "name": "Rain in {minutes} minutes" }
     },
     "camera": {
-      "map": { "name": "Map" },
       "nowcast": { "name": "Nowcast" }
     }
   }

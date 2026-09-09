@@ -78,10 +78,10 @@ def observed_rain(crop: RadarCrop, config: Config) -> RainAlert:
     )
 
 
-def will_rain_flag(alert: RainAlert | None) -> str:
+def will_rain_flag(alert: RainAlert | None) -> bool | None:
     if alert is None:
-        return "unknown"
-    return "true" if alert.status == STATUS_RAIN else "false"
+        return None
+    return alert.status == STATUS_RAIN
 
 
 def advect_field(

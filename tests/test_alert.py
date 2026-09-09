@@ -35,13 +35,13 @@ def test_observed_rain_when_center_exceeds_threshold(config: Config):
 
 
 def test_will_rain_flag():
-    assert will_rain_flag(None) == "unknown"
+    assert will_rain_flag(None) is None
     dry = observed_rain(make_crop(), Config(lat=LAT, lon=LON))
-    assert will_rain_flag(dry) == "false"
+    assert will_rain_flag(dry) is False
     rr = np.zeros((21, 21), dtype=np.float32)
     rr[10, 10] = 2.0
     wet = observed_rain(make_crop(rr=rr), Config(lat=LAT, lon=LON))
-    assert will_rain_flag(wet) == "true"
+    assert will_rain_flag(wet) is True
 
 
 def test_nowcast_rain_requires_displacement_for_leads(config: Config):

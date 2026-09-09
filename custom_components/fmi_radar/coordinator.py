@@ -37,7 +37,6 @@ class FmiRadarCoordinator(DataUpdateCoordinator[RenderResult]):
             name=entry.title,
             update_interval=timedelta(minutes=minutes),
         )
-        self.png_bytes: bytes | None = None
         self.gif_bytes: bytes | None = None
         slug = entry.entry_id[:8]
         self.outdir = Path(hass.config.path("www", "fmi_radar", slug))
@@ -79,9 +78,7 @@ class FmiRadarCoordinator(DataUpdateCoordinator[RenderResult]):
             _LOGGER.exception("Radar update failed")
             raise UpdateFailed(str(err)) from err
 
-        png_path = self.outdir / "output.png"
         gif_path = self.outdir / "radar.gif"
-        self.png_bytes = png_path.read_bytes() if png_path.exists() else None
         self.gif_bytes = gif_path.read_bytes() if gif_path.exists() else None
         _LOGGER.info(
             "Radar poll finished status=%s mean_rr=%.2f",

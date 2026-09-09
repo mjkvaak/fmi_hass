@@ -12,15 +12,15 @@ This repository is laid out as a HACS **Integration** ([structure](https://www.h
 6. Settings → Devices & services → Add integration → **FMI Precipitation Radar**.
 7. Confirm **lat / lon** (defaults to the Home Assistant home location if that is inside the FMI Finnish composite, otherwise Helsinki centre), **map box** (keep it small; default 40 km), **alert zone radius**, and the other setup fields. The composite covers Finland and neighbouring parts of Estonia, Sweden, and Norway. Polling starts with HA and stops when HA stops or you disable the entry.
 
-Lovelace still/GIF:
+Lovelace nowcast GIF:
 
 ```yaml
 type: picture-entity
-entity: camera.fmi_radar_map
+entity: camera.fmi_radar_nowcast
 show_state: false
 ```
 
-Files also land under `/config/www/fmi_radar/<entry id prefix>/` (`output.png`, `radar.gif`). Those images include the crop centre; serve `/local/` only on an authenticated Home Assistant instance. Do not commit `output/`.
+Files also land under `/config/www/fmi_radar/<entry id prefix>/` (`radar.gif`). Those images include the crop centre; serve `/local/` only on an authenticated Home Assistant instance. Do not commit `output/`.
 
 Live updates fail (entities become unavailable) if the FMI composite is **more than 15 minutes old**, because a wall-clock T=0…+15 nowcast is then impossible.
 

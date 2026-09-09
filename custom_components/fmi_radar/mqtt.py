@@ -76,7 +76,7 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
         "state": json.dumps(state),
     }
     for lead, flag in result.will_rain.items():
-        messages[f"will_rain_in_{lead}_minutes"] = flag
+        messages[f"will_rain_in_{lead}_minutes"] = json.dumps(flag)
 
     client = _client(config)
     try:
@@ -93,12 +93,12 @@ def report_unavailable(config: "Config", error: str) -> None:
     config.outdir.mkdir(parents=True, exist_ok=True)
     (config.outdir / "status.txt").write_text(STATUS_UNAVAILABLE + "\n")
     for lead in config.nowcast_lead_min:
-        (config.outdir / f"will_rain_in_{lead}_minutes.txt").write_text("unknown\n")
+        (config.outdir / f"will_rain_in_{lead}_minutes.txt").write_text("null\n")
     payload = {
         "health": HEALTH_UNAVAILABLE,
         "status": STATUS_UNAVAILABLE,
         "error": error[:500],
-        **{f"will_rain_in_{lead}_minutes": "unknown" for lead in config.nowcast_lead_min},
+        **{f"will_rain_in_{lead}_minutes": None for lead in config.nowcast_lead_min},
     }
     (config.outdir / "radar.json").write_text(json.dumps(payload, indent=2) + "\n")
     if not config.mqtt_host:
@@ -108,7 +108,10 @@ def report_unavailable(config: "Config", error: str) -> None:
         "health": HEALTH_UNAVAILABLE,
         "status": STATUS_UNAVAILABLE,
         "state": json.dumps(payload),
-        **{f"will_rain_in_{lead}_minutes": "unknown" for lead in config.nowcast_lead_min},
+        **{
+            f"will_rain_in_{lead}_minutes": "null"
+            for lead in config.nowcast_lead_min
+        },
     }
     try:
         client = _client(config)

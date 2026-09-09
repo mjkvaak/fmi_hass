@@ -32,4 +32,4 @@ DEFAULT_TIMEOUT: Final = 240.0
 DEFAULT_ALERT_ALPHA: Final = 0.05
 DEFAULT_POLL_SECONDS: Final = 60.0
 
-PLATFORMS: Final = ("sensor", "binary_sensor", "camera")
+PLATFORMS: Final = ("sensor", "camera")

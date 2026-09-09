@@ -12,7 +12,7 @@ def test_report_unavailable_writes_files_without_mqtt(tmp_path: Path):
     report_unavailable(config, "boom" * 200)
     assert (tmp_path / "status.txt").read_text().strip() == "unavailable"
     for lead in (5, 10, 15):
-        assert (tmp_path / f"will_rain_in_{lead}_minutes.txt").read_text().strip() == "unknown"
+        assert (tmp_path / f"will_rain_in_{lead}_minutes.txt").read_text().strip() == "null"
     payload = json.loads((tmp_path / "radar.json").read_text())
     assert payload["health"] == HEALTH_UNAVAILABLE
     assert payload["status"] == "unavailable"

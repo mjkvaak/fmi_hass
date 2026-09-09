@@ -1,6 +1,6 @@
 # FMI precipitation radar for Home Assistant
 
-HACS custom integration: crop FMI precipitation radar around a location, overlay rain on a map, and expose **DRY/RAIN**, rain rate, 5/10/15-minute nowcasts, and map cameras inside Home Assistant.
+HACS custom integration: crop FMI precipitation radar around a location, overlay rain on a map, and expose **DRY/RAIN**, rain rate, 5/10/15-minute nowcasts, and a nowcast camera inside Home Assistant.
 
 ![Example nowcast GIF](docs/demo/radar.gif)
 
@@ -28,17 +28,16 @@ Change those later under the integration’s **Configure** options; HA reloads t
 | `sensor.*_status`             | `RAIN` / `DRY`                             |
 | `sensor.*_mean_rr` / `max_rr` | mm/h inside the alert disk                 |
 | `sensor.*_timestamp`          | Product time (UTC)                         |
-| `binary_sensor.*_raining`     | Alert disk wet now                         |
-| `binary_sensor.*_will_rain_*` | Optical-flow nowcast at +5 / +10 / +15 min |
-| `camera.*_map`                | PNG still                                  |
+| `sensor.*_raining`            | Alert disk raining now (`True` / `False`)  |
+| `sensor.*_will_rain_*`        | Nowcast rain in 5 / 10 / 15 min (`True` / `False`) |
 | `camera.*_nowcast`            | GIF T=0…+15                                |
 
 
-Maps are also written to `/config/www/fmi_radar/<entry>/` so Lovelace can use `/local/fmi_radar/<entry>/output.png` or `radar.gif`. Keep `output/` out of git; rendered maps include the crop centre.
+Maps are also written to `/config/www/fmi_radar/<entry>/` so Lovelace can use `/local/fmi_radar/<entry>/radar.gif`. Keep `output/` out of git; rendered maps include the crop centre.
 
 ```yaml
 type: picture-entity
-entity: camera.fmi_radar_map
+entity: camera.fmi_radar_nowcast
 show_state: false
 ```
 
