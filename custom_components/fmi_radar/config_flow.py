@@ -11,7 +11,7 @@ from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 
-from .hass_config import default_setup_lat_lon
+from .hass_config import coordinates_in_radar_coverage, default_setup_lat_lon
 
 from .const import (
     CONF_BOX_KM,
@@ -99,15 +99,27 @@ class FmiRadarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        if user_input is None:
-            return self.async_show_form(step_id="user", data_schema=_schema(self.hass))
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not coordinates_in_radar_coverage(
+                float(user_input[CONF_LATITUDE]), float(user_input[CONF_LONGITUDE])
+            ):
+                errors["base"] = "outside_coverage"
+            else:
+                unique = (
+                    f"{float(user_input[CONF_LATITUDE]):.4f}_"
+                    f"{float(user_input[CONF_LONGITUDE]):.4f}"
+                )
+                await self.async_set_unique_id(unique)
+                self._abort_if_unique_id_configured()
+                title = user_input.get(CONF_NAME) or "FMI Radar"
+                return self.async_create_entry(title=title, data=user_input)
 
-        unique = f"{float(user_input[CONF_LATITUDE]):.4f}_{float(user_input[CONF_LONGITUDE]):.4f}"
-        await self.async_set_unique_id(unique)
-        self._abort_if_unique_id_configured()
-
-        title = user_input.get(CONF_NAME) or "FMI Radar"
-        return self.async_create_entry(title=title, data=user_input)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_schema(self.hass, user_input),
+            errors=errors,
+        )
 
     @staticmethod
     @callback
@@ -124,6 +136,14 @@ class FmiRadarOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         if user_input is not None:
+            if not coordinates_in_radar_coverage(
+                float(user_input[CONF_LATITUDE]), float(user_input[CONF_LONGITUDE])
+            ):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_schema(self.hass, user_input),
+                    errors={"base": "outside_coverage"},
+                )
             return self.async_create_entry(title="", data=user_input)
 
         defaults = {**self.config_entry.data, **self.config_entry.options}

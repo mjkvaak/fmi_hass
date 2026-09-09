@@ -10,7 +10,7 @@ This repository is laid out as a HACS **Integration** ([structure](https://www.h
 4. **Add**, then download **FMI Precipitation Radar**.
 5. Restart Home Assistant.
 6. Settings → Devices & services → Add integration → **FMI Precipitation Radar**.
-7. Confirm **lat / lon** (defaults to the Home Assistant home location, otherwise Helsinki centre), **map box (km)**, **alert zone radius (km)**, and the other setup fields. Polling starts with HA and stops when HA stops or you disable the entry.
+7. Confirm **lat / lon** (defaults to the Home Assistant home location if that is inside the FMI Finnish composite, otherwise Helsinki centre), **map box (km)**, **alert zone radius (km)**, and the other setup fields. The composite covers Finland and neighbouring parts of Estonia, Sweden, and Norway. Polling starts with HA and stops when HA stops or you disable the entry.
 
 Lovelace still/GIF:
 

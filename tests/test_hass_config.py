@@ -7,6 +7,7 @@ from fmi_radar.hass_config import (
     CONF_LATITUDE,
     CONF_LONGITUDE,
     config_from_entry,
+    coordinates_in_radar_coverage,
     infer_ha_light_dark,
     theme_name,
     default_setup_lat_lon,
@@ -80,3 +81,14 @@ def test_default_setup_lat_lon_prefers_hass_home_then_helsinki():
     assert default_setup_lat_lon(61.5, 23.8) == (61.5, 23.8)
     assert default_setup_lat_lon(0.0, 0.0) == (DEFAULT_LAT, DEFAULT_LON)
     assert default_setup_lat_lon(None, None) == (DEFAULT_LAT, DEFAULT_LON)
+    assert default_setup_lat_lon(52.37, 4.89) == (DEFAULT_LAT, DEFAULT_LON)
+
+
+def test_coordinates_in_radar_coverage():
+    assert coordinates_in_radar_coverage(60.1719, 24.9414)
+    assert coordinates_in_radar_coverage(59.437, 24.754)
+    assert coordinates_in_radar_coverage(59.329, 18.069)
+    assert coordinates_in_radar_coverage(69.649, 18.955)
+    assert not coordinates_in_radar_coverage(59.914, 10.752)
+    assert not coordinates_in_radar_coverage(57.709, 11.975)
+    assert not coordinates_in_radar_coverage(52.37, 4.89)

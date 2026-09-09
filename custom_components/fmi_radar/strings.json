@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "FMI precipitation radar",
-        "description": "Home Assistant will start polling FMI when this integration is added, and stop when it is disabled or HA shuts down.",
+        "description": "Uses the FMI Finnish radar composite (Finland and neighbouring parts of Estonia, Sweden, and Norway). Home Assistant will start polling when this integration is added, and stop when it is disabled or HA shuts down.",
         "data": {
           "name": "Name",
           "latitude": "Latitude",
@@ -22,13 +22,16 @@
     },
     "abort": {
       "already_configured": "This location is already configured"
+    },
+    "error": {
+      "outside_coverage": "That location is outside the FMI radar composite. Coverage is Finland and neighbouring parts of Estonia, Sweden, and Norway."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "FMI radar options",
-        "description": "Change location, crop, and alert zone. Polling restarts after you save.",
+        "description": "Change location, crop, and alert zone. The map must fall inside the FMI radar composite. Polling restarts after you save.",
         "data": {
           "name": "Name",
           "latitude": "Latitude",
@@ -44,6 +47,9 @@
           "timeout": "Fetch timeout (seconds)"
         }
       }
+    },
+    "error": {
+      "outside_coverage": "That location is outside the FMI radar composite. Coverage is Finland and neighbouring parts of Estonia, Sweden, and Norway."
     }
   },
   "entity": {
