@@ -11,6 +11,7 @@ from PIL import Image
 from pyproj import Transformer
 
 from .config import Config
+from .clean import despike_crop
 from .geo import GeoTransform, array_bounds
 from .log import get_logger
 from .s3 import RadarObject, download_object
@@ -220,7 +221,7 @@ def crop_radar(obj: RadarObject, config: Config) -> RadarCrop:
         crop.rr.shape[1],
         perf_counter() - t0,
     )
-    return crop
+    return despike_crop(crop, config.rr_vmin)
 
 
 def _box_slices(crop: RadarCrop, lat: float, lon: float, box_km: float):

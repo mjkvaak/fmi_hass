@@ -8,10 +8,9 @@ from fmi_radar.alert import (
     STATUS_RAIN,
     nowcast_rain,
     observed_rain,
-    will_rain_flag,
 )
 from fmi_radar.config import Config
-from tests.conftest import LAT, LON, make_crop
+from tests.conftest import make_crop
 
 
 def test_observed_rain_dry(config: Config):
@@ -32,16 +31,6 @@ def test_observed_rain_when_center_exceeds_threshold(config: Config):
     assert alert.wet_pixels >= 1
     assert alert.max_rr_mmh == pytest.approx(1.5)
     assert alert.payload() == STATUS_RAIN
-
-
-def test_will_rain_flag():
-    assert will_rain_flag(None) is None
-    dry = observed_rain(make_crop(), Config(lat=LAT, lon=LON))
-    assert will_rain_flag(dry) is False
-    rr = np.zeros((21, 21), dtype=np.float32)
-    rr[10, 10] = 2.0
-    wet = observed_rain(make_crop(rr=rr), Config(lat=LAT, lon=LON))
-    assert will_rain_flag(wet) is True
 
 
 def test_nowcast_rain_requires_displacement_for_leads(config: Config):

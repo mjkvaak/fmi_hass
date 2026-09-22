@@ -215,8 +215,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"meta: {result.metadata_path}")
     print(f"array: {result.array_path}")
     print(f"status: {result.alert.status} ({result.status_path})")
-    for lead, flag in sorted(result.will_rain.items()):
-        print(f"will_rain_in_{lead}_minutes: {flag}")
+    for lead, item in sorted(result.nowcast_alerts.items()):
+        print(
+            f"mean_rr_in_{lead}_minutes: {item.mean_rr_mmh:.2f}  "
+            f"max_rr_in_{lead}_minutes: {item.max_rr_mmh:.2f}"
+        )
     print(
         f"radar_time: {result.metadata['timestamp_utc']}  "
         f"mean_rr: {result.alert.mean_rr_mmh:.2f} mm/h  "

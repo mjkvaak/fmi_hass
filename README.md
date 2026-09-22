@@ -29,7 +29,8 @@ Change those later under the integration’s **Configure** options; HA reloads t
 | `sensor.*_mean_rr` / `max_rr` | mm/h inside the alert disk                 |
 | `sensor.*_timestamp`          | Product time (UTC)                         |
 | `sensor.*_raining`            | Alert disk raining now (`True` / `False`)  |
-| `sensor.*_will_rain_*`        | Nowcast rain in 5 / 10 / 15 min (`True` / `False`) |
+| `sensor.*_mean_rr_{5,10,15}`  | Nowcast mean mm/h in the alert disk        |
+| `sensor.*_max_rr_{5,10,15}`   | Nowcast max mm/h in the alert disk         |
 | `camera.*_nowcast`            | GIF T=0…+15                                |
 
 
@@ -47,7 +48,7 @@ show_state: false
 
 FMI GeoTIFF: `Z[dBZ] = 0.5 * pixel - 32`. Rain rate uses Marshall–Palmer `Z = 200 R^1.6`. Linear colour scale 0–8 mm/h.
 
-Optical flow uses T=−15…0 on `box_km` plus `of_padding_km` on **each side** of the map (so rain can be tracked as it moves in), then advects up to 30 minutes. Live T=0 is aligned toward wall-clock now so S3 publish lag is absorbed. If the FMI product is **older than 15 minutes**, the live run raises an error (HA entities go unavailable) because T=0…+15 cannot be nowcast. Historic CLI `--time` keeps T=0 at the requested composite and skips that check.
+Optical flow uses T=−15…0 on `box_km` plus `of_padding_km` on **each side** of the map (so rain can be tracked as it moves in), then advects up to 30 minutes. Isolated 1–2 pixel echoes are dropped on the FMI composite **before** flow (typical bird-flock clutter at 250 m); advected nowcast frames are not despiked, because flow can smear real rain into small blobs. Live T=0 is aligned toward wall-clock now so S3 publish lag is absorbed. If the FMI product is **older than 15 minutes**, the live run raises an error (HA entities go unavailable) because T=0…+15 cannot be nowcast. Historic CLI `--time` keeps T=0 at the requested composite and skips that check. Nowcast **mean/max rain rate** is measured in the same alert disk as the live sensors; set your own automation threshold.
 
 Logs go to the `fmi_radar` logger (Home Assistant **Settings → System → Logs**, or `logger: logs: fmi_radar: debug` in `configuration.yaml`). The CLI prints the same messages to stderr.
 

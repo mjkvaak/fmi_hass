@@ -71,7 +71,8 @@
       "max_rr": { "name": "Max rain rate" },
       "timestamp": { "name": "Radar time" },
       "raining": { "name": "Raining" },
-      "will_rain": { "name": "Rain in {minutes} minutes" }
+      "mean_rr_lead": { "name": "Mean rain in {minutes} minutes" },
+      "max_rr_lead": { "name": "Max rain in {minutes} minutes" }
     },
     "camera": {
       "nowcast": { "name": "Nowcast" }

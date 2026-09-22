@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Fetch FMI radar at T=-15…0, advect to T=+5/+10/+15, "
-            "print will_rain flags, and write radar.gif."
+            "print nowcast rain rates, and write radar.gif."
         )
     )
     parser.add_argument("--lat", type=float, default=DEFAULT_LAT)
@@ -105,8 +105,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"flow_available: {result.metadata['flow_available']}")
     print(f"status: {result.alert.status}")
     print(f"mean_rr: {result.alert.mean_rr_mmh:.2f} mm/h")
-    for lead, flag in sorted(result.will_rain.items()):
-        print(f"will_rain_in_{lead}_minutes: {flag}")
+    for lead, item in sorted(result.nowcast_alerts.items()):
+        print(
+            f"mean_rr_in_{lead}_minutes: {item.mean_rr_mmh:.2f}  "
+            f"max_rr_in_{lead}_minutes: {item.max_rr_mmh:.2f}"
+        )
     print(f"meta: {result.metadata_path}")
     if result.gif_path:
         print(f"gif: {result.gif_path}")

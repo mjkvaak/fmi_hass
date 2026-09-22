@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from time import perf_counter
 
-from .alert import RainAlert, observed_rain, will_rain_flag
+from .alert import RainAlert, observed_rain
 from .config import THEMES, Config, Theme
 from .flow import advect_crop, run_nowcast
 from .freshness import ensure_live_product_fresh
@@ -43,7 +43,6 @@ class RenderResult:
     crop: RadarCrop
     alert: RainAlert
     nowcast_alerts: dict[int, RainAlert]
-    will_rain: dict[int, bool | None]
     images: dict[str, Path]
     gif_path: Path | None
     metadata_path: Path
@@ -77,8 +76,12 @@ def _write_stable_images(images: dict[str, Path], outdir: Path) -> dict[str, str
     return stable
 
 
-def _will_rain_key(lead: int) -> str:
-    return f"will_rain_in_{lead}_minutes"
+def _lead_mean_key(lead: int) -> str:
+    return f"mean_rr_in_{lead}_minutes"
+
+
+def _lead_max_key(lead: int) -> str:
+    return f"max_rr_in_{lead}_minutes"
 
 
 def _metadata(
@@ -90,13 +93,21 @@ def _metadata(
     status_path: Path,
     stable: dict[str, str],
     nowcast_alerts: dict[int, RainAlert],
-    will_rain: dict[int, bool | None],
     history_offsets: list[int],
     flow_available: bool,
     gif_path: Path | None,
 ) -> dict:
     stats = crop_stats(crop)
     requested = config.when.isoformat() if config.when else None
+    lead_rates = {}
+    for lead in config.nowcast_lead_min:
+        item = nowcast_alerts.get(lead)
+        lead_rates[_lead_mean_key(lead)] = (
+            None if item is None else round(item.mean_rr_mmh, 4)
+        )
+        lead_rates[_lead_max_key(lead)] = (
+            None if item is None else round(item.max_rr_mmh, 4)
+        )
     return {
         "timestamp_utc": crop.timestamp.isoformat(),
         "requested": requested,
@@ -123,7 +134,7 @@ def _metadata(
         "nowcast": {str(lead): item.as_dict() for lead, item in nowcast_alerts.items()},
         "history_offsets": history_offsets,
         "flow_available": flow_available,
-        **{_will_rain_key(lead): flag for lead, flag in will_rain.items()},
+        **lead_rates,
         **stats,
     }
 
@@ -195,7 +206,7 @@ def render_latest(
     t0_flow = history_crops[0]
     nowcast = run_nowcast(history_crops, config.nowcast_lead_min)
     if not nowcast.flow_available:
-        LOGGER.warning("Optical flow unavailable; will_rain flags will be unknown")
+        LOGGER.warning("Optical flow unavailable; nowcast rain rates will be unavailable")
     align_min = _align_lead_min(t0_flow.timestamp, config) if nowcast.flow is not None else 0.0
     anim_horizon = min(float(max(config.nowcast_lead_min)), config.max_advect_min - align_min)
     anim_horizon = max(0.0, anim_horizon)
@@ -226,7 +237,6 @@ def render_latest(
 
     alert = observed_rain(aligned_flow, config)
     nowcast_alerts: dict[int, RainAlert] = {}
-    will_rain: dict[int, bool | None] = {}
     for lead in config.nowcast_lead_min:
         product_lead = align_min + lead
         if (
@@ -239,11 +249,12 @@ def render_latest(
             nowcast_alerts[lead] = replace(
                 predicted, lead_minutes=lead, method="optical_flow"
             )
-        will_rain[lead] = will_rain_flag(nowcast_alerts.get(lead))
-        (config.outdir / f"{_will_rain_key(lead)}.txt").write_text(
-            json.dumps(will_rain[lead]) + "\n"
-        )
-    steps.info("Alerts and will_rain flags written")
+        item = nowcast_alerts.get(lead)
+        mean_txt = "null" if item is None else f"{item.mean_rr_mmh:.4f}"
+        max_txt = "null" if item is None else f"{item.max_rr_mmh:.4f}"
+        (config.outdir / f"{_lead_mean_key(lead)}.txt").write_text(mean_txt + "\n")
+        (config.outdir / f"{_lead_max_key(lead)}.txt").write_text(max_txt + "\n")
+    steps.info("Alerts and nowcast rain rates written")
 
     array_path, _prev = save_crop(display, config, config.outdir)
     status_path = config.outdir / "status.txt"
@@ -313,7 +324,6 @@ def render_latest(
         status_path,
         stable,
         nowcast_alerts,
-        will_rain,
         nowcast.history_offsets,
         nowcast.flow_available,
         gif_path,
@@ -329,7 +339,6 @@ def render_latest(
         crop=display,
         alert=alert,
         nowcast_alerts=nowcast_alerts,
-        will_rain=will_rain,
         images=images,
         gif_path=gif_path,
         metadata_path=metadata_path,

@@ -64,8 +64,21 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
         "output_png": str(config.outdir / "output.png"),
         "output_gif": str(config.outdir / "radar.gif"),
         "flow_available": result.metadata.get("flow_available"),
-        "will_rain": {str(k): v for k, v in result.will_rain.items()},
-        **{f"will_rain_in_{lead}_minutes": flag for lead, flag in result.will_rain.items()},
+        "nowcast": {
+            str(lead): {
+                "mean_rr_mmh": round(item.mean_rr_mmh, 4),
+                "max_rr_mmh": round(item.max_rr_mmh, 4),
+            }
+            for lead, item in result.nowcast_alerts.items()
+        },
+        **{
+            f"mean_rr_in_{lead}_minutes": round(item.mean_rr_mmh, 4)
+            for lead, item in result.nowcast_alerts.items()
+        },
+        **{
+            f"max_rr_in_{lead}_minutes": round(item.max_rr_mmh, 4)
+            for lead, item in result.nowcast_alerts.items()
+        },
     }
     messages = {
         "health": HEALTH_OK,
@@ -75,8 +88,9 @@ def publish_result(config: "Config", result: "RenderResult") -> None:
         "timestamp": str(state["timestamp_utc"] or ""),
         "state": json.dumps(state),
     }
-    for lead, flag in result.will_rain.items():
-        messages[f"will_rain_in_{lead}_minutes"] = json.dumps(flag)
+    for lead, item in result.nowcast_alerts.items():
+        messages[f"mean_rr_in_{lead}_minutes"] = f"{item.mean_rr_mmh:.4f}"
+        messages[f"max_rr_in_{lead}_minutes"] = f"{item.max_rr_mmh:.4f}"
 
     client = _client(config)
     try:
@@ -93,12 +107,14 @@ def report_unavailable(config: "Config", error: str) -> None:
     config.outdir.mkdir(parents=True, exist_ok=True)
     (config.outdir / "status.txt").write_text(STATUS_UNAVAILABLE + "\n")
     for lead in config.nowcast_lead_min:
-        (config.outdir / f"will_rain_in_{lead}_minutes.txt").write_text("null\n")
+        (config.outdir / f"mean_rr_in_{lead}_minutes.txt").write_text("null\n")
+        (config.outdir / f"max_rr_in_{lead}_minutes.txt").write_text("null\n")
     payload = {
         "health": HEALTH_UNAVAILABLE,
         "status": STATUS_UNAVAILABLE,
         "error": error[:500],
-        **{f"will_rain_in_{lead}_minutes": None for lead in config.nowcast_lead_min},
+        **{f"mean_rr_in_{lead}_minutes": None for lead in config.nowcast_lead_min},
+        **{f"max_rr_in_{lead}_minutes": None for lead in config.nowcast_lead_min},
     }
     (config.outdir / "radar.json").write_text(json.dumps(payload, indent=2) + "\n")
     if not config.mqtt_host:
@@ -109,7 +125,11 @@ def report_unavailable(config: "Config", error: str) -> None:
         "status": STATUS_UNAVAILABLE,
         "state": json.dumps(payload),
         **{
-            f"will_rain_in_{lead}_minutes": "null"
+            f"mean_rr_in_{lead}_minutes": "null"
+            for lead in config.nowcast_lead_min
+        },
+        **{
+            f"max_rr_in_{lead}_minutes": "null"
             for lead in config.nowcast_lead_min
         },
     }
