@@ -17,7 +17,7 @@ from .mqtt import publish_result
 from .persist import save_crop
 from .plot import get_basemap, render_map, write_radar_gif
 from .process import RadarCrop, crop_radar, crop_stats, extract_box, extract_flow
-from .s3 import fetch_history, fetch_radar
+from .s3 import fetch_nowcast_history, fetch_radar
 
 LOGGER = get_logger(__name__)
 
@@ -188,7 +188,7 @@ def render_latest(
     t0_obj = fetch_radar(config)
     steps.info("Using FMI object %s (product %s)", t0_obj.key, t0_obj.timestamp.isoformat())
     ensure_live_product_fresh(t0_obj.timestamp, config)
-    history_objs = fetch_history(config, t0_obj.timestamp)
+    history_objs = fetch_nowcast_history(config, t0_obj.timestamp)
     history_objs.setdefault(0, t0_obj)
     steps.info("History offsets present: %s", sorted(history_objs))
 
@@ -203,8 +203,14 @@ def render_latest(
             history_crops[offset].rr.shape[0],
             history_crops[offset].rr.shape[1],
         )
-    t0_flow = history_crops[0]
+    t0_for_flow = history_crops[0]
     nowcast = run_nowcast(history_crops, config.nowcast_lead_min)
+    t0_flow = t0_for_flow
+    if t0_obj.key != history_objs[0].key:
+        qc_crop = crop_radar(t0_obj, flow_config)
+        if qc_crop.rr.shape == t0_for_flow.rr.shape:
+            t0_flow = qc_crop
+            steps.info("Advecting QC T=0 with unfiltered optical flow")
     if not nowcast.flow_available:
         LOGGER.warning("Optical flow unavailable; nowcast rain rates will be unavailable")
     align_min = _align_lead_min(t0_flow.timestamp, config) if nowcast.flow is not None else 0.0

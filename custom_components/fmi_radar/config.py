@@ -13,8 +13,10 @@ DEFAULT_LAT = float(os.environ.get("FMI_RADAR_LAT", "60.1719"))
 DEFAULT_LON = float(os.environ.get("FMI_RADAR_LON", "24.9414"))
 DEFAULT_BOX_KM = 10.0
 
-# National QC CAPPI 600 m reflectivity composite, 5-minute cadence.
+# National QC CAPPI 600 m reflectivity composite (display). FMI often
+# publishes QC only for some slots; the unfiltered series is 5-minute.
 DEFAULT_PRODUCT = "finland_cappi_600_dbzh_finrad_qc.tif"
+FLOW_HISTORY_PRODUCT = "finland_cappi_600_dbzh_finrad_unfiltered.tif"
 BUCKET_HOST = "https://fmi-opendata-radar-geotiff.s3.eu-west-1.amazonaws.com"
 INTERVAL_MIN = 5
 MAX_LOOKBACK_MIN = 180

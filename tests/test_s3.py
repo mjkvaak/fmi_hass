@@ -11,6 +11,7 @@ from fmi_radar.s3 import (
     RadarObject,
     expected_product_slot,
     fetch_history,
+    fetch_nowcast_history,
     fetch_slot,
     find_latest_key,
     key_for,
@@ -64,8 +65,14 @@ def test_expected_product_slot_waits_for_publish_lag():
 def test_key_for_and_object_url():
     stamp = datetime(2026, 9, 4, 3, 0, tzinfo=timezone.utc)
     key = key_for(stamp, DEFAULT_PRODUCT)
-    assert key == f"2026/09/04/202609040300_{DEFAULT_PRODUCT}"
+    assert key == f"2026/09/04/finrad/202609040300_{DEFAULT_PRODUCT}"
     assert object_url(key).endswith(key)
+    from fmi_radar.s3 import keys_for
+
+    assert keys_for(stamp, DEFAULT_PRODUCT) == (
+        f"2026/09/04/finrad/202609040300_{DEFAULT_PRODUCT}",
+        f"2026/09/04/202609040300_{DEFAULT_PRODUCT}",
+    )
 
 
 def test_find_latest_key_walks_back_until_head_succeeds():
@@ -73,7 +80,7 @@ def test_find_latest_key_walks_back_until_head_succeeds():
     session = MagicMock()
     missing = MagicMock(status_code=404)
     found = MagicMock(status_code=200, headers={"Last-Modified": "Fri, 04 Sep 2026 03:04:00 GMT"})
-    session.head.side_effect = [missing, found]
+    session.head.side_effect = [missing, missing, found]
 
     key, slot, published = find_latest_key(
         config,
@@ -81,7 +88,7 @@ def test_find_latest_key_walks_back_until_head_succeeds():
         session=session,
     )
     assert slot == datetime(2026, 9, 4, 3, 0, tzinfo=timezone.utc)
-    assert key.endswith(f"202609040300_{config.product}")
+    assert key.endswith(f"finrad/202609040300_{config.product}")
     assert published is not None
     assert published.tzinfo is not None
 
@@ -96,7 +103,8 @@ def test_fetch_history_skips_missing_slots():
     t0 = datetime(2026, 9, 4, 3, 0, tzinfo=timezone.utc)
     config = Config(nowcast_history_min=(10, 5, 0))
 
-    def fake_fetch(_config, slot, session=None):
+    def fake_fetch(_config, slot, session=None, product=None):
+        del product
         offset = int((slot - t0).total_seconds() / 60)
         if offset == -5:
             return None
@@ -105,3 +113,36 @@ def test_fetch_history_skips_missing_slots():
     with patch("fmi_radar.s3._session"), patch("fmi_radar.s3.fetch_slot", side_effect=fake_fetch):
         frames = fetch_history(config, t0)
     assert set(frames) == {-10, 0}
+
+
+def test_fetch_nowcast_history_falls_back_to_unfiltered_when_qc_has_no_pairs():
+    t0 = datetime(2026, 10, 5, 19, 25, tzinfo=timezone.utc)
+    qc_t0 = RadarObject(key="qc.tif", timestamp=t0, url="https://example.invalid/qc")
+
+    def fake_history(config, t0_stamp, product=None):
+        del t0_stamp
+        chosen = product or config.product
+        if chosen.endswith("_qc.tif"):
+            return {0: qc_t0}
+        return {
+            -15: RadarObject(key="u15.tif", timestamp=t0, url="https://example.invalid/u15"),
+            -10: RadarObject(key="u10.tif", timestamp=t0, url="https://example.invalid/u10"),
+            -5: RadarObject(key="u5.tif", timestamp=t0, url="https://example.invalid/u5"),
+            0: RadarObject(key="u0.tif", timestamp=t0, url="https://example.invalid/u0"),
+        }
+
+    with patch("fmi_radar.s3.fetch_history", side_effect=fake_history):
+        frames = fetch_nowcast_history(Config(), t0)
+    assert set(frames) == {-15, -10, -5, 0}
+    assert frames[0].key == "u0.tif"
+
+
+def test_fetch_nowcast_history_keeps_qc_when_five_min_pairs_exist():
+    t0 = datetime(2026, 10, 5, 19, 25, tzinfo=timezone.utc)
+    qc = {
+        -5: RadarObject(key="qc-5.tif", timestamp=t0, url="https://example.invalid/a"),
+        0: RadarObject(key="qc0.tif", timestamp=t0, url="https://example.invalid/b"),
+    }
+    with patch("fmi_radar.s3.fetch_history", return_value=qc):
+        frames = fetch_nowcast_history(Config(), t0)
+    assert frames[0].key == "qc0.tif"

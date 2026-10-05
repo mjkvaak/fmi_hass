@@ -10,6 +10,7 @@ import requests
 
 from .config import (
     BUCKET_HOST,
+    FLOW_HISTORY_PRODUCT,
     INTERVAL_MIN,
     MAX_LOOKBACK_MIN,
     MAX_NEAREST_MIN,
@@ -41,9 +42,26 @@ def object_url(key: str) -> str:
     return f"{BUCKET_HOST}/{key}"
 
 
-def key_for(timestamp: datetime, product: str) -> str:
+def keys_for(timestamp: datetime, product: str) -> tuple[str, str]:
+    """Candidate S3 keys: current ``…/finrad/…`` layout, then the legacy flat path."""
     utc = timestamp.astimezone(timezone.utc)
-    return f"{utc:%Y/%m/%d}/{utc:%Y%m%d%H%M}_{product}"
+    stem = f"{utc:%Y%m%d%H%M}_{product}"
+    day = f"{utc:%Y/%m/%d}"
+    return (f"{day}/finrad/{stem}", f"{day}/{stem}")
+
+
+def key_for(timestamp: datetime, product: str) -> str:
+    return keys_for(timestamp, product)[0]
+
+
+def _head_slot(
+    session: requests.Session, slot: datetime, product: str
+) -> tuple[str, requests.Response] | tuple[None, None]:
+    for key in keys_for(slot, product):
+        response = _head(session, key)
+        if response is not None:
+            return key, response
+    return None, None
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -138,12 +156,11 @@ def find_latest_key(
     slot = expected_product_slot(now or datetime.now(timezone.utc), config.publish_lag_min)
     steps = MAX_LOOKBACK_MIN // INTERVAL_MIN
     for _ in range(steps):
-        key = key_for(slot, config.product)
-        response = _head(session, key)
+        key, response = _head_slot(session, slot, config.product)
         if response is not None:
             LOGGER.info("Found latest composite %s", key)
             return key, slot, _parse_http_date(response.headers.get("Last-Modified"))
-        LOGGER.debug("Missing composite %s", key)
+        LOGGER.debug("Missing composite slot %s", slot.isoformat())
         slot -= timedelta(minutes=INTERVAL_MIN)
     raise FileNotFoundError(
         f"No {config.product!r} object in the last {MAX_LOOKBACK_MIN} minutes"
@@ -165,8 +182,7 @@ def find_nearest_key(
             candidates.append(center + timedelta(minutes=step * INTERVAL_MIN))
             candidates.append(center - timedelta(minutes=step * INTERVAL_MIN))
         for slot in candidates:
-            key = key_for(slot, config.product)
-            response = _head(session, key)
+            key, response = _head_slot(session, slot, config.product)
             if response is not None:
                 return key, slot, _parse_http_date(response.headers.get("Last-Modified"))
     raise FileNotFoundError(
@@ -181,13 +197,11 @@ def _poll_for_slot(
 ) -> tuple[str, datetime, datetime | None] | None:
     deadline = time.monotonic() + max(0.0, config.poll_seconds)
     while True:
-        key = key_for(slot, config.product)
-        response = _head(session, key)
+        key, response = _head_slot(session, slot, config.product)
         if response is not None:
             return key, slot, _parse_http_date(response.headers.get("Last-Modified"))
         newer = slot + timedelta(minutes=INTERVAL_MIN)
-        key_new = key_for(newer, config.product)
-        response = _head(session, key_new)
+        key_new, response = _head_slot(session, newer, config.product)
         if response is not None:
             return (
                 key_new,
@@ -203,12 +217,13 @@ def fetch_slot(
     config: Config,
     slot: datetime,
     session: requests.Session | None = None,
+    product: str | None = None,
 ) -> RadarObject | None:
     """Reference the composite at an exact 5-minute slot, or None if missing."""
     session = session or _session(config)
     utc = slot.astimezone(timezone.utc).replace(second=0, microsecond=0)
-    key = key_for(utc, config.product)
-    response = _head(session, key)
+    product = product or config.product
+    key, response = _head_slot(session, utc, product)
     if response is None:
         return None
     return _ref(
@@ -252,20 +267,57 @@ def fetch_radar(config: Config, now: datetime | None = None) -> RadarObject:
     return _ref(key, timestamp, requested, published)
 
 
-def fetch_history(config: Config, t0: datetime) -> dict[int, RadarObject]:
+def fetch_history(
+    config: Config,
+    t0: datetime,
+    product: str | None = None,
+) -> dict[int, RadarObject]:
     """Fetch composites at T=0 and earlier 5-minute slots (keys: -15, -10, -5, 0)."""
     session = _session(config)
+    product = product or config.product
     t0 = t0.astimezone(timezone.utc).replace(second=0, microsecond=0)
     frames: dict[int, RadarObject] = {}
     for offset in config.nowcast_history_min:
         rel = 0 if offset == 0 else -abs(offset)
-        obj = fetch_slot(config, t0 + timedelta(minutes=rel), session=session)
+        obj = fetch_slot(
+            config, t0 + timedelta(minutes=rel), session=session, product=product
+        )
         if obj is not None:
             frames[rel] = obj
         else:
-            LOGGER.warning("History slot T=%s min missing", rel)
-    LOGGER.info("History HEAD complete offsets=%s", sorted(frames))
+            LOGGER.warning("History slot T=%s min missing (%s)", rel, product)
+    LOGGER.info("History HEAD complete product=%s offsets=%s", product, sorted(frames))
     return frames
+
+
+def _consecutive_five_min_pairs(offsets: list[int]) -> bool:
+    ordered = sorted(o for o in offsets if o <= 0)
+    return any((newer - older) == INTERVAL_MIN for older, newer in zip(ordered, ordered[1:]))
+
+
+def fetch_nowcast_history(config: Config, t0: datetime) -> dict[int, RadarObject]:
+    """History for optical flow: QC if 5-minute pairs exist, else unfiltered.
+
+    FMI currently publishes ``finland_cappi_600_dbzh_finrad_qc`` only on some
+    slots. The unfiltered national composite still has a 5-minute series.
+    """
+    primary = fetch_history(config, t0)
+    if _consecutive_five_min_pairs(list(primary)):
+        return primary
+    if (config.product or "") == FLOW_HISTORY_PRODUCT:
+        return primary
+    LOGGER.warning(
+        "QC nowcast history has no consecutive 5-minute pairs (offsets=%s); "
+        "falling back to unfiltered composites",
+        sorted(primary),
+    )
+    fallback = fetch_history(config, t0, product=FLOW_HISTORY_PRODUCT)
+    if _consecutive_five_min_pairs(list(fallback)):
+        return fallback
+    LOGGER.warning(
+        "Unfiltered nowcast history also incomplete offsets=%s", sorted(fallback)
+    )
+    return fallback if len(fallback) >= len(primary) else primary
 
 
 def fetch_latest(config: Config, now: datetime | None = None) -> RadarObject:
